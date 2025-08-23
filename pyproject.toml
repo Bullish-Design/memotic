@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memotic"
+version = "0.0.1"
+description = "Python API wrapper for Memos with FastAPI webhook support"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Bullish Design", email = "BullishDesignEngineering@gmail.com"},
+]
+keywords = ["memos", "api", "webhook", "fastapi", "notes"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
+
+dependencies = [
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    "httpx>=0.25.2",
+    "pydantic>=2.5.0",
+    "typer>=0.16.1",
+    "rich>=14.1.0",
+]
+
+
+
+[project.urls]
+Homepage = "https://github.com/Bullish-Design/memotic"
+Repository = "https://github.com/Bullish-Design/memotic.git"
+Issues = "https://github.com/Bullish-Design/memotic/issues"
+
+[project.scripts]
+memos-webhook-server = "memotic.server:main"
+memos-example = "memostic.example:main"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.3",
+    "pytest-asyncio>=0.21.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["memotic"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration tests (may require external services)",
+]

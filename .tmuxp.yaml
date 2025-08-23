@@ -1,0 +1,16 @@
+session_name: Memotic
+windows:
+  - window_name: Memotic
+    layout: main-vertical
+    options:
+      main-pane-width: 20%
+    panes:
+      - shell_command:
+          - cd ~/Documents/Notes/Projects/memotic
+          # - nvim Notes.md ToDo.md
+          - open-project
+      - shell_command:
+          - tmux resizep -y 85%
+          - filelist-open "startup_files.txt" memotic
+        focus: true
+      - clear
