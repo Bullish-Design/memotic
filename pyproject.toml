@@ -34,6 +34,7 @@ dependencies = [
     "typer>=0.16.1",
     "rich>=14.1.0",
     "python-dotenv>=1.1.1",
+    "requests>=2.32.5",
 ]
 
 
@@ -57,7 +58,7 @@ dev-dependencies = [
 packages = ["src/memotic", "src/examples", "src/tests"]
 
 [tool.pytest.ini_options]
-testpaths = ["sec/tests"]
+testpaths = ["src/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

@@ -51,10 +51,10 @@ class Resource(BaseModel):
 class Memo(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    id: int
-    name: str
-    uid: str
-    row_status: RowStatus = Field(alias="rowStatus")
+    id: Optional[int] = Field(default=None)
+    name: Optional[str] = Field(default=None)
+    uid: Optional[str] = Field(default=None)
+    row_status: Optional[RowStatus] = Field(default=None, alias="rowStatus")
     creator: str
     create_time: datetime = Field(alias="createTime")
     update_time: datetime = Field(alias="updateTime")
@@ -121,19 +121,20 @@ class AuthStatus(BaseModel):
 class MemoListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    data: List[Memo]
+    memos: List[Memo]
     next_page_token: Optional[str] = Field(alias="nextPageToken", default=None)
+    total_size: Optional[int] = Field(alias="totalSize", default=None)
 
 
 class ResourceListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    data: List[Resource]
+    resources: List[Resource]
     next_page_token: Optional[str] = Field(alias="nextPageToken", default=None)
 
 
 class TagListResponse(BaseModel):
-    data: List[Tag]
+    tags: List[Tag]
 
 
 class CreateMemoRequest(BaseModel):
@@ -162,5 +163,4 @@ class CreateWebhookRequest(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    data: List[Memo]
-
+    memos: List[Memo]

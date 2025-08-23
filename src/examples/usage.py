@@ -7,6 +7,7 @@ Run with:
 """
 
 import asyncio
+import json
 import os
 from memotic import (
     MemosClient,
@@ -30,34 +31,39 @@ def example_api_usage():
 
     # Initialize client
     client = MemosClient(base_url, token)
+    print(f"\n\nUSAGE.PY\n\n")
+    print(f"Connecting to Memos API at {client.base_url}\n\n")
 
     try:
         # Get auth status
-        auth = client.get_auth_status()
-        print(f"Logged in as: {auth.user.nickname}")
+        # auth = client.get_auth_status()
+        # print(f"Logged in as: {auth.user.nickname}")
 
         # Create a memo
         memo_request = CreateMemoRequest(
             content="# API Test\n\nTesting the Python API wrapper!\n\n#test #api",
             visibility=Visibility.PRIVATE,
         )
+        print(
+            f"Creating memo with content:\n{json.dumps(memo_request.model_dump(), indent=4)}\n\n"
+        )
         memo = client.create_memo(memo_request)
-        print(f"Created memo: {memo.id}")
+        print(f"Created memo: {memo}\n")
 
         # List memos
-        memos = client.list_memos(limit=5, tag="test")
-        print(f"Found {len(memos.data)} memos")
+        memos = client.list_memos(tag="api")
+        print(f"Found {len(memos.memos)} memos\n")
 
         # Search memos
-        search_results = client.search_memos("API")
-        print(f"Search found {len(search_results.data)} memos")
+        search_results = client.search_memos("Test")
+        print(f"Search found {len(search_results.memos)} memos\n")
 
         # Get system info
         system_info = client.get_system_info()
-        print(f"Connected to Memos v{system_info.version}")
+        print(f"Connected to Memos v{system_info.version}\n")
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"\n\nError: {e}\n\n")
     finally:
         client.close()
 
@@ -109,4 +115,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
