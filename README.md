@@ -21,7 +21,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and setup the project
 git clone <your-repo>
-cd memos-api
+cd memotic
 uv sync
 ```
 

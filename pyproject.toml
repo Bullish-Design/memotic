@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "memotic"
-version = "0.0.2"
+version = "0.0.3"
 description = "Python API wrapper for Memos with FastAPI webhook support"
 readme = "README.md"
 requires-python = ">=3.9"
