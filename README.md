@@ -28,7 +28,7 @@ uv sync
 ### Basic Usage
 
 ```python
-from memos_api import MemosClient, CreateMemoRequest, Visibility
+from memotic import MemosClient, CreateMemoRequest, Visibility
 
 # Initialize client
 client = MemosClient("http://localhost:5230", "your-access-token")
@@ -45,7 +45,7 @@ print(f"Created memo: {memo.id}")
 ### Webhook Server
 
 ```python
-from memos_api import register_webhook_handler
+from memotic import register_webhook_handler
 
 @register_webhook_handler("memo.created")
 async def handle_new_memo(data):
@@ -165,7 +165,7 @@ All API objects are represented as Pydantic models:
 uv run pytest
 
 # Run with coverage
-uv run pytest --cov=memos_api
+uv run pytest --cov=memotic
 
 # Integration tests (requires running Memos instance)
 MEMOS_URL=http://localhost:5230 MEMOS_TOKEN=token uv run pytest -m integration

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "memotic"
-version = "0.0.1"
+version = "0.0.2"
 description = "Python API wrapper for Memos with FastAPI webhook support"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -33,6 +33,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "typer>=0.16.1",
     "rich>=14.1.0",
+    "python-dotenv>=1.1.1",
 ]
 
 
@@ -44,7 +45,7 @@ Issues = "https://github.com/Bullish-Design/memotic/issues"
 
 [project.scripts]
 memos-webhook-server = "memotic.server:main"
-memos-example = "memostic.example:main"
+memos-example = "examples.usage:main"
 
 [tool.uv]
 dev-dependencies = [
@@ -53,10 +54,10 @@ dev-dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["memotic"]
+packages = ["src/memotic", "src/examples", "src/tests"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["sec/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

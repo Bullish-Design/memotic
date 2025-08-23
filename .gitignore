@@ -5,6 +5,7 @@ __pycache__/
 **.nix
 **devenv**
 **.lock
+**.env
 
 # C extensions
 *.so

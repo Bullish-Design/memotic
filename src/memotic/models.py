@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -22,6 +22,8 @@ class RowStatus(str, Enum):
 
 
 class User(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     name: str
     username: str
@@ -31,12 +33,11 @@ class User(BaseModel):
     avatar_url: str = Field(alias="avatarUrl")
     create_time: datetime = Field(alias="createTime")
     update_time: datetime = Field(alias="updateTime")
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class Resource(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     name: str
     uid: str
@@ -45,12 +46,11 @@ class Resource(BaseModel):
     type: str
     size: int
     linked_memos: List[str] = Field(alias="linkedMemos", default=[])
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class Memo(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     name: str
     uid: str
@@ -65,9 +65,6 @@ class Memo(BaseModel):
     resources: List[Resource] = []
     relations: List[Dict[str, Any]] = []
     tags: List[str] = []
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class Tag(BaseModel):
@@ -76,25 +73,23 @@ class Tag(BaseModel):
 
 
 class CustomizedProfile(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     title: str
     description: str
     logo_url: str = Field(alias="logoUrl")
     locale: str
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class SystemInfo(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     version: str
     mode: str
     allow_sign_up: bool = Field(alias="allowSignUp")
     disable_password_login: bool = Field(alias="disablePasswordLogin")
     additional_script: str = Field(alias="additionalScript")
     customized_profile: CustomizedProfile = Field(alias="customizedProfile")
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class Webhook(BaseModel):
@@ -124,19 +119,17 @@ class AuthStatus(BaseModel):
 
 
 class MemoListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     data: List[Memo]
     next_page_token: Optional[str] = Field(alias="nextPageToken", default=None)
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class ResourceListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     data: List[Resource]
     next_page_token: Optional[str] = Field(alias="nextPageToken", default=None)
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class TagListResponse(BaseModel):
@@ -155,12 +148,11 @@ class UpdateMemoRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     nickname: Optional[str] = None
     email: Optional[str] = None
     avatar_url: Optional[str] = Field(alias="avatarUrl", default=None)
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class CreateWebhookRequest(BaseModel):
@@ -171,3 +163,4 @@ class CreateWebhookRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     data: List[Memo]
+
