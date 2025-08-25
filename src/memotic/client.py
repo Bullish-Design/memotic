@@ -1,185 +1,110 @@
-import httpx
-from typing import Optional, List
-from .models import *
+import os
+from typing import Optional
+
+from dotenv import load_dotenv
+from grpclib.client import Channel
+
+from .models import CreateMemo, Memo, Visibility
+from .proto_gen.memos.api import v1 as memos_api
+
+# Load environment variables from .env file
+load_dotenv()
 
 
-class MemosAPIException(Exception):
-    def __init__(self, message: str, status_code: Optional[int] = None):
-        self.message = message
-        self.status_code = status_code
-        super().__init__(message)
+class MemoticClient:
+    """
+    An asynchronous client for interacting with the Memos API.
 
+    This client provides a high-level, Pydantic-based interface over the
+    gRPC API stubs generated from the Memos protobuf definitions.
+    """
 
-class MemosClient:
-    def __init__(self, base_url: str, token: str):
-        self.base_url = base_url.rstrip("/")
-        self.token = token
-        self.client = httpx.Client(
-            base_url=f"{self.base_url}/api/v1",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30.0,
-        )
-        self._user_id = None
-
-    def _handle_response(self, response: httpx.Response) -> httpx.Response:
-        # print(f"\n\nResponse: {response.status_code} {response.text}\n\n")
-        if not response.is_success:
-            try:
-                error_data = response.json()
-                if "error" in error_data:
-                    raise MemosAPIException(
-                        error_data["error"]["message"], response.status_code
-                    )
-            except:
-                pass
-            raise MemosAPIException(
-                f"HTTP {response.status_code}: {response.text}", response.status_code
-            )
-        return response
-
-    def get_user_id(self) -> str:
-        """Get the user ID of the authenticated user"""
-        if self._user_id:
-            return self._user_id
-
-        response = self._handle_response(self.client.post("auth/status"))
-        user_data = response.json()
-        user_id = user_data.get("user", {}).get("name")
-        if not user_id:
-            raise MemosAPIException("Could not retrieve user ID from auth status")
-        self._user_id = user_id
-        print(f"User ID: {user_id}")
-        return user_id
-
-    # Auth
-    def get_auth_status(self) -> AuthStatus:
-        response = self._handle_response(self.client.post("auth/status"))
-        return AuthStatus(**response.json())
-
-    # Memos
-    def list_memos(
+    def __init__(
         self,
-        page: int = 1,
-        page_size: int = 20,
-        tag: Optional[str] = None,
-        visibility: Optional[str] = None,
-        order_by: str = "create_time",
-        order: str = "desc",
-    ) -> MemoListResponse:
-        user_id = 1  # self.get_user_id()
-        params = {}  # {"pageSize": page_size}  # , "orderBy": order_by, "order": order}
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        token: Optional[str] = None,
+    ):
+        """
+        Initializes the MemoticClient.
 
-        # Build filter if needed
-        filters = []
-        if tag:
-            filters.append(f'content.contains("{tag}")')
-        if visibility:
-            filters.append(f'visibility == "{visibility}"')
-        if filters:
-            params["filter"] = " && ".join(filters)
+        Args:
+            host: The hostname of the Memos server. Defaults to MEMOS_HOST env var.
+            port: The port of the Memos server. Defaults to MEMOS_PORT env var.
+            token: The access token for authentication. Defaults to MEMOS_TOKEN env var.
 
-        request = self.client.get(f"{user_id}/memos", params=params)
-        print(f"\n    Request URL: {request.url}")
-        print(f"    Request Params: {params}")
-        print(f"    Request Headers: {request.headers}")
-        # print(f"    Request Method: {request.method}")
-        print(f"    Request Body: {request.content}")
-        print(f"    Request Cookies: {request.cookies}")
-        # print(f"    Request Timeout: {request.timeout}")
+        Raises:
+            ValueError: If host, port, or token are not provided and not found in env vars.
+        """
+        self.host = host or os.getenv("MEMOS_HOST")
+        self.port = port or (int(p) if (p := os.getenv("MEMOS_PORT")) else None)
+        self.token = token or os.getenv("MEMOS_TOKEN")
 
-        response = self._handle_response(
-            self.client.get(f"{user_id}/memos", params=params)
-        )
-        response.raise_for_status()
-        print(f"    Request Response: {response}\n\n")
-
-        return MemoListResponse(**response.json())
-
-    def create_memo(self, memo_data: CreateMemoRequest) -> Memo:
-        response = self._handle_response(
-            self.client.post("memos", json=memo_data.model_dump())
-        )
-        return Memo(**response.json())
-
-    def get_memo(self, memo_id: int) -> Memo:
-        response = self._handle_response(self.client.get(f"memos/{memo_id}"))
-        return Memo(**response.json())
-
-    def update_memo(self, memo_id: int, memo_data: UpdateMemoRequest) -> Memo:
-        response = self._handle_response(
-            self.client.patch(
-                f"memos/{memo_id}", json=memo_data.model_dump(exclude_none=True)
+        if not all([self.host, self.port, self.token]):
+            raise ValueError(
+                "Memos host, port, and token must be provided either as arguments "
+                "or as MEMOS_HOST, MEMOS_PORT, and MEMOS_TOKEN environment variables."
             )
+
+        metadata = {"authorization": f"Bearer {self.token}"}
+        channel = Channel(self.host, self.port)
+
+        self.memo_service = memos_api.MemoServiceStub(channel, metadata=metadata)
+        # Add other service stubs here as needed
+        # self.user_service = memos_api.UserServiceStub(channel, metadata=metadata)
+
+    async def create_memo(self, memo_data: CreateMemo) -> Memo:
+        """
+        Creates a new memo.
+
+        Args:
+            memo_data: A CreateMemo Pydantic model with the content and visibility.
+
+        Returns:
+            The created Memo object.
+        """
+        request = memos_api.CreateMemoRequest(
+            memo=memo_data.content,
+            visibility=memos_api.Visibility.from_string(memo_data.visibility.value),
         )
-        return Memo(**response.json())
-
-    def delete_memo(self, memo_id: int) -> bool:
-        response = self._handle_response(self.client.delete(f"memos/{memo_id}"))
-        return response.status_code == 200
-
-    # Resources
-    def upload_resource(self, file_path: str) -> Resource:
-        with open(file_path, "rb") as f:
-            response = self._handle_response(
-                self.client.post("resources", files={"file": f})
-            )
-        return Resource(**response.json())
-
-    def list_resources(
-        self, page: int = 1, page_size: int = 20
-    ) -> ResourceListResponse:
-        params = {"pageSize": page_size}
-        response = self._handle_response(self.client.get("resources", params=params))
-        return ResourceListResponse(**response.json())
-
-    def get_resource(self, resource_id: int) -> bytes:
-        response = self._handle_response(self.client.get(f"resources/{resource_id}"))
-        return response.content
-
-    def delete_resource(self, resource_id: int) -> bool:
-        response = self._handle_response(self.client.delete(f"resources/{resource_id}"))
-        return response.status_code == 200
-
-    # Tags
-    def list_tags(self) -> TagListResponse:
-        response = self._handle_response(self.client.get("tags"))
-        return TagListResponse(**response.json())
-
-    def get_tag_stats(self) -> TagListResponse:
-        response = self._handle_response(self.client.get("tags/stats"))
-        return TagListResponse(**response.json())
-
-    # Search
-    def search_memos(
-        self, query: str, page_size: Optional[int] = None, tag: Optional[str] = None
-    ) -> SearchResponse:
-        user_id = self.get_user_id()
-        params = {"filter": f'content.contains("{query}")'}
-        if page_size:
-            params["pageSize"] = page_size
-        else:
-            params["pageSize"] = 20
-
-        response = self._handle_response(
-            self.client.get(f"{user_id}/memos", params=params)
+        created_memo_proto = await self.memo_service.create_memo(
+            create_memo_request=request
         )
-        return SearchResponse(**response.json())
+        return Memo.model_validate(created_memo_proto)
 
-    # System
-    def get_system_info(self) -> SystemInfo:
-        response = self._handle_response(self.client.get("system/info"))
-        return SystemInfo(**response.json())
+    async def list_memos(
+        self,
+        page_size: int = 50,
+        page_token: str = "",
+        filter_str: str = "row_status == 'NORMAL'",
+    ) -> list[Memo]:
+        """
+        Lists memos with optional filtering and pagination.
 
-    # Webhooks
-    def list_webhooks(self) -> List[Webhook]:
-        response = self._handle_response(self.client.get("webhooks"))
-        return [Webhook(**webhook) for webhook in response.json()]
+        Args:
+            page_size: The number of memos to retrieve.
+            page_token: The token for the next page of results.
+            filter_str: A filter string to apply to the query.
 
-    def create_webhook(self, webhook_data: CreateWebhookRequest) -> Webhook:
-        response = self._handle_response(
-            self.client.post("webhooks", json=webhook_data.model_dump())
+        Returns:
+            A list of Memo objects.
+        """
+        request = memos_api.ListMemosRequest(
+            page_size=page_size, page_token=page_token, filter=filter_str
         )
-        return Webhook(**response.json())
+        response = await self.memo_service.list_memos(list_memos_request=request)
+        return [Memo.model_validate(memo_proto) for memo_proto in response.memos]
 
-    def close(self):
-        self.client.close()
+    async def get_memo(self, name: str) -> Memo:
+        """
+        Retrieves a single memo by its name (ID).
+
+        Args:
+            name: The name of the memo, e.g., "memos/101".
+
+        Returns:
+            The requested Memo object.
+        """
+        request = memos_api.GetMemoRequest(name=name)
+        memo_proto = await self.memo_service.get_memo(get_memo_request=request)
+        return Memo.model_validate(memo_proto)

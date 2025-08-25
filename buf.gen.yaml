@@ -1,0 +1,14 @@
+version: v2
+plugins:
+  # Use the local betterproto2 compiler plugin instead of a remote one.
+  # devenv places the `protoc-gen-python-betterproto2` executable on the PATH.
+  #- local: ["uvx", "--from", "betterproto2", "protoc-gen-python-betterproto2"]
+  - local: protoc-gen-python_betterproto2
+    out: . #src/memotic/proto_gen
+    opt:
+      # Generate async clients for use with grpclib
+      - pydantic_dataclasses=true
+      - client_generation=async
+      - server_generation=async
+      # Disable ruff formatting to avoid NixOS compatibility issues
+      - ruff_format=false

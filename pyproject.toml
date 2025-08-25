@@ -1,69 +1,55 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [project]
 name = "memotic"
-version = "0.0.3"
-description = "Python API wrapper for Memos with FastAPI webhook support"
+version = "0.2.3"
+description = "A modern, async-first Python client for the Memos API, with Pydantic models and auto-generation from protobuf definitions."
 readme = "README.md"
-requires-python = ">=3.12"
-license = {text = "MIT"}
+requires-python = ">=3.10"
+license = { text = "MIT" }
 authors = [
-    {name = "Bullish Design", email = "BullishDesignEngineering@gmail.com"},
+    { name = "Bullish-Design", email = "BullishDesignEngineering@gmail.com" },
 ]
-keywords = ["memos", "api", "webhook", "fastapi", "notes"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
-
 dependencies = [
-    "fastapi>=0.104.1",
-    "uvicorn[standard]>=0.24.0",
-    "httpx>=0.25.2",
-    "pydantic>=2.5.0",
-    "typer>=0.16.1",
-    "rich>=14.1.0",
-    "python-dotenv>=1.1.1",
-    "requests>=2.32.5",
-    "betterproto>=1.2.5",
+    "grpclib>=0.4.7",
+    "pydantic>=2.7.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "betterproto2-compiler>=0.7.1", # NOTE: I fucked with the devenv compiler to remove ruff format check, need to figure out playing nice with nixos 
+    "grpcio-tools>=1.74.0",
+    "betterproto2[grpclib]>=0.7.1",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "uv>=0.1.0",
+]
 
+[project.scripts]
+memotic-generate = "memotic.scripts.generate:main"
 
 [project.urls]
 Homepage = "https://github.com/Bullish-Design/memotic"
-Repository = "https://github.com/Bullish-Design/memotic.git"
-Issues = "https://github.com/Bullish-Design/memotic/issues"
+Repository = "https://github.com/Bullish-Design/memotic"
 
-[project.scripts]
-memos-webhook-server = "memotic.server:main"
-memos-example = "examples.usage:main"
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.uv]
-dev-dependencies = [
-    "pytest>=7.4.3",
-    "pytest-asyncio>=0.21.1",
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.github",
+  "/.gitignore",
+  #"/src/memotic/proto_gen", # Exclude generated code from source distribution
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/memotic", "src/examples", "src/tests"]
-
-[tool.pytest.ini_options]
-testpaths = ["src/tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --tb=short"
-markers = [
-    "integration: marks tests as integration tests (may require external services)",
-]
+packages = ["src/memotic"]

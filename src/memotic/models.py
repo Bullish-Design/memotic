@@ -1,166 +1,86 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Dict, Any
-from datetime import datetime
+from __future__ import annotations
 from enum import Enum
+from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class Visibility(str, Enum):
-    PRIVATE = "PRIVATE"
-    PROTECTED = "PROTECTED"
+    """Enumeration for memo visibility."""
+
     PUBLIC = "PUBLIC"
-
-
-class Role(str, Enum):
-    HOST = "HOST"
-    ADMIN = "ADMIN"
-    USER = "USER"
+    PROTECTED = "PROTECTED"
+    PRIVATE = "PRIVATE"
 
 
 class RowStatus(str, Enum):
-    NORMAL = "NORMAL"
+    """Enumeration for row status."""
+
+    ACTIVE = "ACTIVE"
     ARCHIVED = "ARCHIVED"
 
 
-class User(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+class MemoProperty(BaseModel):
+    """Calculated properties from memo content."""
 
-    id: int
-    name: str
-    username: str
-    role: Role
-    email: str
-    nickname: str
-    avatar_url: str = Field(alias="avatarUrl")
-    create_time: datetime = Field(alias="createTime")
-    update_time: datetime = Field(alias="updateTime")
+    tags: List[str] = Field(default_factory=list)
+    has_link: bool = False
+    has_task_list: bool = False
+    has_code: bool = False
+    has_incomplete_tasks: bool = False
 
 
 class Resource(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    """Represents a resource attached to a memo."""
 
-    id: int
     name: str
-    uid: str
-    create_time: datetime = Field(alias="createTime")
+    id: int
+    creator: str
+    created_ts: datetime
+    updated_ts: datetime
     filename: str
+    internal_path: str
+    external_link: str
     type: str
     size: int
-    linked_memos: List[str] = Field(alias="linkedMemos", default=[])
+    public_id: str
+    linked_memo_id: Optional[int] = None
+
+
+class Reaction(BaseModel):
+    """Represents a reaction to a memo."""
+
+    id: int
+    creator: str
+    content_id: str
+    reaction_type: str
 
 
 class Memo(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    """Represents a memo object."""
 
-    id: Optional[int] = Field(default=None)
-    name: Optional[str] = Field(default=None)
-    uid: Optional[str] = Field(default=None)
-    row_status: Optional[RowStatus] = Field(default=None, alias="rowStatus")
+    name: str
+    id: int
+    row_status: RowStatus
     creator: str
-    create_time: datetime = Field(alias="createTime")
-    update_time: datetime = Field(alias="updateTime")
-    display_time: datetime = Field(alias="displayTime")
+    created_ts: datetime
+    updated_ts: datetime
     content: str
     visibility: Visibility
-    pinned: bool = False
-    resources: List[Resource] = []
-    relations: List[Dict[str, Any]] = []
-    tags: List[str] = []
+    pinned: bool
+    display_ts: datetime
+    property: MemoProperty = Field(default_factory=MemoProperty)
+    # The following fields are not in the provided proto but are good to have
+    # resources: List[Resource] = Field(default_factory=list)
+    # relations: List[MemoRelation] = Field(default_factory=list)
+    # reactions: List[Reaction] = Field(default_factory=list)
 
 
-class Tag(BaseModel):
-    name: str
-    count: int
+class CreateMemo(BaseModel):
+    """Model for creating a new memo."""
 
-
-class CustomizedProfile(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    title: str
-    description: str
-    logo_url: str = Field(alias="logoUrl")
-    locale: str
-
-
-class SystemInfo(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    version: str
-    mode: str
-    allow_sign_up: bool = Field(alias="allowSignUp")
-    disable_password_login: bool = Field(alias="disablePasswordLogin")
-    additional_script: str = Field(alias="additionalScript")
-    customized_profile: CustomizedProfile = Field(alias="customizedProfile")
-
-
-class Webhook(BaseModel):
-    id: Optional[int] = None
-    name: str
-    url: str
-    events: List[str]
-
-
-class ErrorDetail(BaseModel):
-    field: str
-    issue: str
-
-
-class ErrorResponse(BaseModel):
-    code: str
-    message: str
-    details: Optional[List[ErrorDetail]] = None
-
-
-class ApiError(BaseModel):
-    error: ErrorResponse
-
-
-class AuthStatus(BaseModel):
-    user: User
-
-
-class MemoListResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    memos: List[Memo]
-    next_page_token: Optional[str] = Field(alias="nextPageToken", default=None)
-    total_size: Optional[int] = Field(alias="totalSize", default=None)
-
-
-class ResourceListResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    resources: List[Resource]
-    next_page_token: Optional[str] = Field(alias="nextPageToken", default=None)
-
-
-class TagListResponse(BaseModel):
-    tags: List[Tag]
-
-
-class CreateMemoRequest(BaseModel):
-    content: str
-    visibility: Visibility = Visibility.PRIVATE
-
-
-class UpdateMemoRequest(BaseModel):
-    content: Optional[str] = None
-    visibility: Optional[Visibility] = None
-    pinned: Optional[bool] = None
-
-
-class UpdateUserRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    nickname: Optional[str] = None
-    email: Optional[str] = None
-    avatar_url: Optional[str] = Field(alias="avatarUrl", default=None)
-
-
-class CreateWebhookRequest(BaseModel):
-    name: str
-    url: str
-    events: List[str]
-
-
-class SearchResponse(BaseModel):
-    memos: List[Memo]
+    content: str = Field(..., min_length=1, description="The content of the memo.")
+    visibility: Visibility = Field(
+        default=Visibility.PRIVATE, description="The visibility of the memo."
+    )
