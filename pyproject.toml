@@ -4,17 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "memotic"
-version = "0.3.0"
+version = "0.4.1"
 description = "Memos webhook event processing plugin for WebHooky"
 requires-python = ">=3.11"
-authors = [{name = "Your Name"}]
+authors = [{name = "Bullish-Design"}]
 license = {text = "MIT"}
 dependencies = [
     "webhooky[all]",
     "pydantic>=2.7",
-    "typing-extensions>=4.10",
     "fastapi>=0.116.1",
-    "uvicorn>=0.35.0",
 ]
 
 keywords = ["webhooks", "memos", "notes", "markdown", "webhooky", "plugin"]
@@ -42,13 +40,9 @@ dev = [
 webhooky = { git = "https://github.com/Bullish-Design/webhooky.git" }
 
 [project.urls]
-Homepage = "https://github.com/your-org/webhooky-memos"
-Repository = "https://github.com/your-org/webhooky-memos"
-Issues = "https://github.com/your-org/webhooky-memos/issues"
-
-# Register as WebHooky plugin
-[project.entry-points."webhooky.plugins"]
-memos = "memotic.plugin:get_plugin_info"
+Homepage = "https://github.com/your-org/memotic"
+Repository = "https://github.com/your-org/memotic"
+Issues = "https://github.com/your-org/memotic/issues"
 
 [tool.ruff]
 line-length = 120
