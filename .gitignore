@@ -4,8 +4,13 @@ __pycache__/
 *$py.class
 **.nix
 **devenv**
+**direnv**
 **.lock
 **.env
+.agents**
+**.hidden**
+**.db
+**archive**
 
 # C extensions
 *.so
