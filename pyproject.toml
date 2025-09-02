@@ -10,9 +10,11 @@ requires-python = ">=3.11"
 authors = [{name = "Your Name"}]
 license = {text = "MIT"}
 dependencies = [
-    "webhooky",
+    "webhooky[all]",
     "pydantic>=2.7",
     "typing-extensions>=4.10",
+    "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
 ]
 
 keywords = ["webhooks", "memos", "notes", "markdown", "webhooky", "plugin"]
@@ -46,7 +48,7 @@ Issues = "https://github.com/your-org/webhooky-memos/issues"
 
 # Register as WebHooky plugin
 [project.entry-points."webhooky.plugins"]
-memos = "webhooky_memos.plugin:get_plugin_info"
+memos = "memotic.plugin:get_plugin_info"
 
 [tool.ruff]
 line-length = 120

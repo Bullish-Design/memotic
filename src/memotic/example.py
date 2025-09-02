@@ -75,13 +75,34 @@ async def main():
     # Test data - simulating different memo webhook payloads
     test_payloads = [
         {
-            "action": "create",
+            "url": "https://smee.io/DKPU4BqERCd0s4Y1",
+            "activityType": "memos.memo.created",
+            "creator": "users/1",
             "memo": {
-                "name": "AI Research Findings",
-                "content": "Research shows that large language models can be effectively fine-tuned for specific tasks...",
-                "tags": ["research", "ai", "machine-learning"],
-                "visibility": "PRIVATE",
-                "creator": "researcher@example.com",
+                "name": "memos/kFbfxfPLA2Buii7iQwH4CU",
+                "state": 1,
+                "creator": "users/1",
+                "create_time": {"seconds": 1756836672},
+                "update_time": {"seconds": 1756836672},
+                "display_time": {"seconds": 1756836672},
+                "content": "#test memo",
+                "nodes": [
+                    {
+                        "type": 2,
+                        "Node": {
+                            "ParagraphNode": {
+                                "children": [
+                                    {"type": 59, "Node": {"TagNode": {"content": "test"}}},
+                                    {"type": 51, "Node": {"TextNode": {"content": " memo"}}},
+                                ]
+                            }
+                        },
+                    }
+                ],
+                "visibility": 1,
+                "tags": ["test"],
+                "property": {},
+                "snippet": "#test memo\n",
             },
         },
         {

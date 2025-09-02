@@ -39,7 +39,7 @@ class BaseMemoEvent(WebhookEventBase[MemoWebhookPayload]):
 class TaggedMemoEvent(BaseMemoEvent):
     """Event that matches memos with any tags."""
 
-    @field_validator("payload")
+    # @field_validator("payload")
     @classmethod
     def validate_has_tags(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo has tags."""
@@ -58,6 +58,17 @@ class TaggedMemoEvent(BaseMemoEvent):
         """Handle tagged memo update."""
         tags = ", ".join(self.payload.memo.tags or [])
         print(f"Tagged memo updated: {tags}")
+
+    @classmethod
+    def matches(cls, raw_data, headers=None):
+        try:
+            # Transform first
+            transformed = cls._transform_raw_data(raw_data)
+            # Check if memo has tags
+            memo_data = transformed.get("memo", {})
+            return bool(memo_data.get("tags"))
+        except:
+            return False
 
 
 class SpecificTagMemoEvent(BaseMemoEvent):
