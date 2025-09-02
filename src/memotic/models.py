@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, computed_field
 
 class State(str, Enum):
     """Resource state enumeration."""
+
     STATE_UNSPECIFIED = "STATE_UNSPECIFIED"
     NORMAL = "NORMAL"
     ARCHIVED = "ARCHIVED"
@@ -18,7 +19,8 @@ class State(str, Enum):
 
 class Visibility(str, Enum):
     """Memo visibility enumeration."""
-    VISIBILITY_UNSPECIFIED = "VISIBILITY_UNSPECIFIED" 
+
+    VISIBILITY_UNSPECIFIED = "VISIBILITY_UNSPECIFIED"
     PRIVATE = "PRIVATE"
     PROTECTED = "PROTECTED"
     PUBLIC = "PUBLIC"
@@ -26,17 +28,19 @@ class Visibility(str, Enum):
 
 class MemoProperty(BaseModel):
     """Computed memo properties."""
+
     has_link: bool = Field(default=False, alias="hasLink")
     has_task_list: bool = Field(default=False, alias="hasTaskList")
     has_code: bool = Field(default=False, alias="hasCode")
     has_incomplete_tasks: bool = Field(default=False, alias="hasIncompleteTasks")
-    
+
     class Config:
         populate_by_name = True
 
 
 class Location(BaseModel):
     """Geographic location model."""
+
     placeholder: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
@@ -44,6 +48,7 @@ class Location(BaseModel):
 
 class Attachment(BaseModel):
     """Memo attachment model."""
+
     name: Optional[str] = None
     filename: str
     content: Optional[bytes] = None
@@ -51,14 +56,14 @@ class Attachment(BaseModel):
     type: str
     size: Optional[int] = None
     memo: Optional[str] = None
-    
+
     class Config:
         populate_by_name = True
 
 
 class Memo(BaseModel):
     """Main memo model for webhook processing."""
-    
+
     name: Optional[str] = None
     state: State = State.NORMAL
     creator: Optional[str] = None
@@ -74,30 +79,26 @@ class Memo(BaseModel):
     location: Optional[Location] = None
     create_time: Optional[datetime] = Field(None, alias="createTime")
     update_time: Optional[datetime] = Field(None, alias="updateTime")
-    
+
     class Config:
         populate_by_name = True
 
     @computed_field
-    @property
     def has_tags(self) -> bool:
         """Whether memo has any tags."""
         return bool(self.tags)
 
-    @computed_field  
-    @property
+    @computed_field
     def tag_count(self) -> int:
         """Number of tags on memo."""
         return len(self.tags) if self.tags else 0
 
     @computed_field
-    @property
     def word_count(self) -> int:
         """Approximate word count of content."""
         return len(self.content.split()) if self.content else 0
 
     @computed_field
-    @property
     def has_attachments(self) -> bool:
         """Whether memo has attachments."""
         return bool(self.attachments)
@@ -114,12 +115,12 @@ class Memo(BaseModel):
         """Check if memo has specific tag."""
         if not self.tags:
             return False
-        
+
         memo_tags = self.tags
         if not case_sensitive:
             memo_tags = [t.lower() for t in self.tags]
             tag = tag.lower()
-            
+
         return tag in memo_tags
 
     def has_any_tags(self, tags: list[str], case_sensitive: bool = False) -> bool:
@@ -133,33 +134,29 @@ class Memo(BaseModel):
 
 class MemoWebhookPayload(BaseModel):
     """Webhook payload wrapper for memo events."""
-    
+
     action: str
     memo: Memo
     creator: Optional[str] = None
     timestamp: Optional[datetime] = None
     source: Optional[str] = None
-    
+
     @computed_field
-    @property 
     def event_type(self) -> str:
         """Event type derived from action."""
         return f"memo_{self.action}"
 
     @computed_field
-    @property
     def is_create(self) -> bool:
         """Whether this is a memo creation event."""
         return self.action.lower() in {"create", "created", "add", "added"}
 
     @computed_field
-    @property
     def is_update(self) -> bool:
         """Whether this is a memo update event."""
         return self.action.lower() in {"update", "updated", "edit", "edited", "modify", "modified"}
 
     @computed_field
-    @property
     def is_delete(self) -> bool:
         """Whether this is a memo delete event."""
         return self.action.lower() in {"delete", "deleted", "remove", "removed"}
