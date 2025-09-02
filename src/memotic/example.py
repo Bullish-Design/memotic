@@ -15,7 +15,7 @@ import asyncio
 from pathlib import Path
 
 from webhooky import EventBus, create_dev_config
-from webhooky_memos import (
+from memotic import (
     ResearchMemoEvent,
     ProjectMemoEvent,
     UrgentMemoEvent,
