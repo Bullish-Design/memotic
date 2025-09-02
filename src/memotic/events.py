@@ -13,7 +13,7 @@ from .models import Memo, MemoWebhookPayload
 
 class BaseMemoEvent(WebhookEventBase[MemoWebhookPayload]):
     """Base class for all memo webhook events."""
-    
+
     @classmethod
     def _transform_raw_data(cls, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Transform raw webhook data to MemoWebhookPayload format."""
@@ -38,8 +38,8 @@ class BaseMemoEvent(WebhookEventBase[MemoWebhookPayload]):
 
 class TaggedMemoEvent(BaseMemoEvent):
     """Event that matches memos with any tags."""
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_has_tags(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo has tags."""
@@ -62,19 +62,19 @@ class TaggedMemoEvent(BaseMemoEvent):
 
 class SpecificTagMemoEvent(BaseMemoEvent):
     """Event that matches memos with specific tags."""
-    
+
     # Override this in subclasses
     REQUIRED_TAGS: list[str] = []
     MATCH_MODE: str = "any"  # "any" or "all"
     CASE_SENSITIVE: bool = False
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_has_required_tags(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo has required tags."""
         if not cls.REQUIRED_TAGS:
             raise ValueError("REQUIRED_TAGS must be defined")
-            
+
         memo = payload.memo
         if cls.MATCH_MODE == "all":
             if not memo.has_all_tags(cls.REQUIRED_TAGS, cls.CASE_SENSITIVE):
@@ -82,28 +82,28 @@ class SpecificTagMemoEvent(BaseMemoEvent):
         else:
             if not memo.has_any_tags(cls.REQUIRED_TAGS, cls.CASE_SENSITIVE):
                 raise ValueError(f"Memo must have any of tags: {cls.REQUIRED_TAGS}")
-                
+
         return payload
 
 
 class ContentMatchMemoEvent(BaseMemoEvent):
     """Event that matches memos containing specific text patterns."""
-    
+
     # Override these in subclasses
     REQUIRED_TEXT: Optional[str] = None
     TEXT_PATTERNS: list[str] = []
     USE_REGEX: bool = False
     CASE_SENSITIVE: bool = False
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_content_matches(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo content matches text patterns."""
         content = payload.memo.content or ""
-        
+
         if not cls.CASE_SENSITIVE:
             content = content.lower()
-        
+
         # Check simple text match
         if cls.REQUIRED_TEXT:
             text = cls.REQUIRED_TEXT
@@ -111,7 +111,7 @@ class ContentMatchMemoEvent(BaseMemoEvent):
                 text = text.lower()
             if text not in content:
                 raise ValueError(f"Memo must contain text: {cls.REQUIRED_TEXT}")
-        
+
         # Check pattern matches
         if cls.TEXT_PATTERNS:
             for pattern in cls.TEXT_PATTERNS:
@@ -123,20 +123,21 @@ class ContentMatchMemoEvent(BaseMemoEvent):
                     check_pattern = pattern if cls.CASE_SENSITIVE else pattern.lower()
                     if check_pattern in content:
                         return payload
-            
+
             raise ValueError(f"Memo must match patterns: {cls.TEXT_PATTERNS}")
-        
+
         return payload
 
 
 class PrivateMemoEvent(BaseMemoEvent):
     """Event that matches private memos only."""
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_private(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo is private."""
         from .models import Visibility
+
         if payload.memo.visibility != Visibility.PRIVATE:
             raise ValueError("Memo must be private")
         return payload
@@ -144,12 +145,13 @@ class PrivateMemoEvent(BaseMemoEvent):
 
 class PublicMemoEvent(BaseMemoEvent):
     """Event that matches public memos only."""
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_public(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo is public."""
         from .models import Visibility
+
         if payload.memo.visibility != Visibility.PUBLIC:
             raise ValueError("Memo must be public")
         return payload
@@ -157,8 +159,8 @@ class PublicMemoEvent(BaseMemoEvent):
 
 class AttachmentMemoEvent(BaseMemoEvent):
     """Event that matches memos with attachments."""
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_has_attachments(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo has attachments."""
@@ -169,10 +171,10 @@ class AttachmentMemoEvent(BaseMemoEvent):
 
 class LongMemoEvent(BaseMemoEvent):
     """Event that matches long memos (configurable word count)."""
-    
+
     MIN_WORD_COUNT: int = 100
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_word_count(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo meets minimum word count."""
@@ -183,11 +185,12 @@ class LongMemoEvent(BaseMemoEvent):
 
 # Specific implementations for common patterns
 
+
 class ResearchMemoEvent(ContentMatchMemoEvent):
     """Event that matches memos containing research-related content."""
-    
-    TEXT_PATTERNS = ["research", "study", "investigate", "analyze", "analysis"]
-    CASE_SENSITIVE = False
+
+    TEXT_PATTERNS: list[str] = ["research", "study", "investigate", "analyze", "analysis"]
+    CASE_SENSITIVE: bool = False
 
     @on_create()
     async def handle_research_memo_created(self):
@@ -202,10 +205,10 @@ class ResearchMemoEvent(ContentMatchMemoEvent):
 
 class ProjectMemoEvent(SpecificTagMemoEvent):
     """Event that matches memos tagged with project-related tags."""
-    
-    REQUIRED_TAGS = ["project", "todo", "task", "milestone"]
-    MATCH_MODE = "any"
-    CASE_SENSITIVE = False
+
+    REQUIRED_TAGS: list[str] = ["project", "todo", "task", "milestone"]
+    MATCH_MODE: str = "any"
+    CASE_SENSITIVE: bool = False
 
     @on_create()
     async def handle_project_memo_created(self):
@@ -216,10 +219,10 @@ class ProjectMemoEvent(SpecificTagMemoEvent):
 
 class IdeaMemoEvent(SpecificTagMemoEvent):
     """Event that matches memos tagged as ideas."""
-    
-    REQUIRED_TAGS = ["idea", "brainstorm", "concept"]
-    MATCH_MODE = "any" 
-    CASE_SENSITIVE = False
+
+    REQUIRED_TAGS: list[str] = ["idea", "brainstorm", "concept"]
+    MATCH_MODE: str = "any"
+    CASE_SENSITIVE: bool = False
 
     @on_create()
     async def handle_idea_memo_created(self):
@@ -229,24 +232,24 @@ class IdeaMemoEvent(SpecificTagMemoEvent):
 
 class UrgentMemoEvent(BaseMemoEvent):
     """Event that matches urgent memos (based on tags or content)."""
-    
-    @field_validator('payload')
+
+    @field_validator("payload")
     @classmethod
     def validate_urgent(cls, payload: MemoWebhookPayload) -> MemoWebhookPayload:
         """Validate that memo is marked urgent."""
         memo = payload.memo
-        
+
         # Check for urgent tags
         urgent_tags = ["urgent", "important", "priority", "asap"]
         if memo.has_any_tags(urgent_tags, case_sensitive=False):
             return payload
-            
+
         # Check for urgent content patterns
         urgent_patterns = ["urgent", "asap", "priority", "important", "!!"]
         content = (memo.content or "").lower()
         if any(pattern in content for pattern in urgent_patterns):
             return payload
-            
+
         raise ValueError("Memo must be marked as urgent")
 
     @on_create()
