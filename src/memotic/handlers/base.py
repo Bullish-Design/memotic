@@ -5,7 +5,7 @@ Example handlers; replace with your own.
 
 from __future__ import annotations
 
-from .base import MemoWebhookEvent, on_create, on_update, on_any
+from ..base import MemoWebhookEvent, on_create, on_update, on_any
 
 
 class IdeaTagged(MemoWebhookEvent):

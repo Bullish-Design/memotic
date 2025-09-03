@@ -44,7 +44,7 @@ class Memo(BaseModel):
     """Subset of Memos memo fields we actually consume."""
 
     model_config = ConfigDict(extra="allow")
-
+    name: Optional[str] = None
     id: Optional[int] = None
     content: str = ""
     tags: List[str] = Field(default_factory=list)
@@ -98,6 +98,10 @@ class Memo(BaseModel):
         if ut is not None:
             data["update_time"] = parse_dt(ut)
         return data
+
+
+class WebhookEnvelope(BaseModel):
+    memo: Memo
 
 
 # ---------- Utility helpers ----------
@@ -264,8 +268,7 @@ class MemoWebhookEvent(WebhookEventBase):
     # internal caches
     _compiled_regex: ClassVar[Optional[re.Pattern]] = None
 
-    model_config = ConfigDict(extra="allow")
-
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
     # --------- normalization from raw ---------
 
     @classmethod
@@ -455,3 +458,23 @@ class MemoWebhookEvent(WebhookEventBase):
         Kept for symmetry and future hooks.
         """
         return await super().process_triggers()
+
+    @classmethod
+    def normalize_tags(cls, tags: Iterable[str]) -> set[str]:
+        return {t.strip().lower() for t in tags if t and t.strip()}
+
+    @classmethod
+    def event_matches(cls, env: WebhookEnvelope) -> bool:
+        memo = env.memo
+        tags = cls.normalize_tags(memo.tags)
+        if cls.any_tags and not (tags & cls.normalize_tags(cls.any_tags)):
+            return False
+        if cls.all_tags and not cls.normalize_tags(cls.all_tags).issubset(tags):
+            return False
+        if cls.none_tags and (tags & cls.normalize_tags(cls.none_tags)):
+            return False
+        return True
+
+    @classmethod
+    def from_envelope(cls, env: WebhookEnvelope) -> "MemoWebhookEvent":
+        return cls(memo=env.memo)

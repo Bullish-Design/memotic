@@ -7,11 +7,11 @@ from .base import MemoWebhookEvent, on_any
 log = logging.getLogger(__name__)
 
 # match lines that START with "#cli", then optional ":" or whitespace, then the command
-CLI_LINE = re.compile(r"(?mi)^\s*#cli(?:[:\s]+)(?P<cmd>.+?)\s*$")
+CLI_LINE = re.compile(r"(?mi)^\s*#cli(?P<bang>!?)(?:[:\s]+)(?P<cmd>.+?)\s*$")
 
 
-def extract_cli_oneliners(text: str) -> List[str]:
-    return [m.group("cmd").strip() for m in CLI_LINE.finditer(text) if m.group("cmd").strip()]
+def extract_cli_oneliners(text: str):
+    return [(m.group("cmd").strip(), bool(m.group("bang"))) for m in CLI_LINE.finditer(text) if m.group("cmd").strip()]
 
 
 class CliTagged(MemoWebhookEvent):
@@ -39,10 +39,14 @@ class CliTagged(MemoWebhookEvent):
         cfg = SandboxConfig(container=container, workdir=workdir, timeout=timeout_s, shell=shell)
         results = []
         with Sandbox(config=cfg) as sb:
-            for idx, cmd in enumerate(cmds, 1):
+            for cmd, allow_fail in extract_cli_oneliners(self.memo.content or ""):
                 res = sb.execute_shell(cmd)
-                results.append((cmd, res))
-                # (failure behavior TBD—see question below)
+                print(
+                    f"[#cli:{'OK' if res.exit_code == 0 else f'ERR({res.exit_code})'}] $ {cmd}\n"
+                    f"--- stdout ---\n{res.stdout}\n--- stderr ---\n{res.stderr}"
+                )
+                if res.exit_code != 0 and not allow_fail:
+                    break
 
         # simple logging/printing for now (you can post back to Memos later)
         for cmd, res in results:

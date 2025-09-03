@@ -19,6 +19,9 @@ from webhooky.bus import EventBus
 from .base import MemoWebhookEvent  # ensure package imports resolve
 from .handlers.base import *
 
+# from .cli import *
+import memotic.cli
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="memotic demo")
