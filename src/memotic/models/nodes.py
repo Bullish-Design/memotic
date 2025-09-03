@@ -1,9 +1,7 @@
-"""
-Node models for markdown parsing
-"""
+# src/memotic/models/nodes.py
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -17,7 +15,7 @@ class LineBreakNode(BaseModel):
 
 class ParagraphNode(BaseModel):
     """Paragraph node."""
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class TextNode(BaseModel):
@@ -34,7 +32,7 @@ class CodeBlockNode(BaseModel):
 class HeadingNode(BaseModel):
     """Heading node."""
     level: int
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class HorizontalRuleNode(BaseModel):
@@ -44,27 +42,27 @@ class HorizontalRuleNode(BaseModel):
 
 class BlockquoteNode(BaseModel):
     """Blockquote node."""
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class ListNode(BaseModel):
     """List node."""
     kind: ListNodeKind
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class OrderedListItemNode(BaseModel):
     """Ordered list item node."""
     number: int
     indent: int
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class UnorderedListItemNode(BaseModel):
     """Unordered list item node."""
     symbol: str
     indent: int
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class TaskListItemNode(BaseModel):
@@ -72,7 +70,7 @@ class TaskListItemNode(BaseModel):
     symbol: str
     indent: int
     complete: bool
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class MathBlockNode(BaseModel):
@@ -82,12 +80,12 @@ class MathBlockNode(BaseModel):
 
 class TableNodeRow(BaseModel):
     """Table node row."""
-    cells: Optional[list[Node]] = None
+    cells: Optional[list['Node']] = None
 
 
 class TableNode(BaseModel):
     """Table node."""
-    header: Optional[list[Node]] = None
+    header: Optional[list['Node']] = None
     delimiter: Optional[list[str]] = None
     rows: Optional[list[TableNodeRow]] = None
 
@@ -101,7 +99,7 @@ class EmbeddedContentNode(BaseModel):
 class BoldNode(BaseModel):
     """Bold node."""
     symbol: str
-    children: Optional[list[Node]] = None
+    children: Optional[list['Node']] = None
 
 
 class ItalicNode(BaseModel):
@@ -177,40 +175,6 @@ class SuperscriptNode(BaseModel):
 class SpoilerNode(BaseModel):
     """Spoiler node."""
     content: str
-
-
-# Union of all node types for the main Node model
-NodeUnion = Union[
-    LineBreakNode,
-    ParagraphNode,
-    TextNode,
-    CodeBlockNode,
-    HeadingNode,
-    HorizontalRuleNode,
-    BlockquoteNode,
-    ListNode,
-    OrderedListItemNode,
-    UnorderedListItemNode,
-    TaskListItemNode,
-    MathBlockNode,
-    TableNode,
-    EmbeddedContentNode,
-    BoldNode,
-    ItalicNode,
-    BoldItalicNode,
-    CodeNode,
-    ImageNode,
-    LinkNode,
-    AutoLinkNode,
-    TagNode,
-    StrikethroughNode,
-    EscapingCharacterNode,
-    MathNode,
-    HighlightNode,
-    SubscriptNode,
-    SuperscriptNode,
-    SpoilerNode,
-]
 
 
 class Node(BaseModel):

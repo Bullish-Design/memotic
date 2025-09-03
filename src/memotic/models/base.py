@@ -1,6 +1,4 @@
-"""
-Base models and enums for Memos API
-"""
+# src/memotic/models/base.py
 from __future__ import annotations
 
 from datetime import datetime
@@ -104,8 +102,7 @@ class TimestampMixin(BaseModel):
     create_time: Optional[datetime] = Field(None, alias="createTime")
     update_time: Optional[datetime] = Field(None, alias="updateTime")
     
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 class ErrorDetail(BaseModel):

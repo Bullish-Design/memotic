@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
 from datetime import datetime
@@ -27,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 # ---------- Minimal data models ----------
-
 
 class User(BaseModel):
     """Subset of Memos user fields we actually consume."""
@@ -105,7 +105,6 @@ class WebhookEnvelope(BaseModel):
 
 
 # ---------- Utility helpers ----------
-
 
 def _normalize_activity(s: Optional[str]) -> Optional[str]:
     if not s:
@@ -235,7 +234,6 @@ def _cheap_prefilter(
 
 # ---------- The event base ----------
 
-
 class MemoWebhookEvent(WebhookEventBase):
     """
     Base class for Memos webhook events.
@@ -269,7 +267,6 @@ class MemoWebhookEvent(WebhookEventBase):
     _compiled_regex: ClassVar[Optional[re.Pattern]] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
-    # --------- normalization from raw ---------
 
     @classmethod
     def from_raw(
@@ -331,8 +328,6 @@ class MemoWebhookEvent(WebhookEventBase):
 
         return raw
 
-    # --------- derived/computed fields ---------
-
     @property
     def tags(self) -> List[str]:
         tags = list(self.memo.tags or [])
@@ -383,8 +378,6 @@ class MemoWebhookEvent(WebhookEventBase):
 
         # 4) fallback
         return "any"
-
-    # --------- matching logic ---------
 
     @classmethod
     def _get_compiled_regex(cls) -> Optional[re.Pattern]:
@@ -470,8 +463,6 @@ class MemoWebhookEvent(WebhookEventBase):
         if cls.any_tags and not (tags & cls.normalize_tags(cls.any_tags)):
             return False
         if cls.all_tags and not cls.normalize_tags(cls.all_tags).issubset(tags):
-            return False
-        if cls.none_tags and (tags & cls.normalize_tags(cls.none_tags)):
             return False
         return True
 

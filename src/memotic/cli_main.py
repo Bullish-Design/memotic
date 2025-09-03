@@ -1,104 +1,20 @@
 # src/memotic/cli_main.py
 from __future__ import annotations
 
-import hashlib
 import importlib
 import os
-import re
-import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
 
 import typer
 
-app = typer.Typer(add_completion=False, help="memotic control CLI", no_args_is_help=True)
+from .dependencies import get_console
+from .config import get_config, set_config, MemoticConfig
+from .container_manager import get_container_manager
 
-# ---------- helpers ----------
-
-PROJECT_MARKERS = ("pyproject.toml", ".git")
-
-
-def find_project_root(start: Path | str = ".") -> Path:
-    """Walk up to locate a project root (pyproject.toml or .git)."""
-    p = Path(start).resolve()
-    for parent in [p, *p.parents]:
-        for marker in PROJECT_MARKERS:
-            if (parent / marker).exists():
-                return parent
-    return p  # fallback to CWD if no markers found
-
-
-def slugify(name: str) -> str:
-    return re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
-
-
-def default_container_name(project_root: Path) -> str:
-    base = slugify(project_root.name)
-    h = hashlib.sha1(str(project_root).encode()).hexdigest()[:7]
-    return f"memotic-cli-{base}-{h}"
-
-
-def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-
-def docker_is_running() -> bool:
-    try:
-        run(["docker", "ps"], check=True)
-        return True
-    except Exception:
-        return False
-
-
-def container_running(name: str) -> bool:
-    try:
-        out = run(["docker", "inspect", "-f", "{{.State.Running}}", name], check=False).stdout.strip()
-        return out == "true"
-    except Exception:
-        return False
-
-
-def container_exists(name: str) -> bool:
-    try:
-        out = run(["docker", "ps", "-a", "--format", "{{.Names}}"]).stdout.splitlines()
-        return name in out
-    except Exception:
-        return False
-
-
-def ensure_sandbox(project_root: Path, name: Optional[str] = None, image: str = "debian:bookworm-slim") -> str:
-    """Create or start a simple long-lived container mounted to project_root:/workspace."""
-    if not docker_is_running():
-        typer.secho("Docker daemon not available. Install/start Docker or skip --ensure-sandbox.", fg="red", err=True)
-        raise typer.Exit(2)
-
-    name = name or default_container_name(project_root)
-    if container_exists(name):
-        if not container_running(name):
-            run(["docker", "start", name])
-        return name
-
-    # Create the container
-    run(
-        [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            name,
-            "-w",
-            "/workspace",
-            "-v",
-            f"{str(project_root)}:/workspace",
-            image,
-            "bash",
-            "-lc",
-            "sleep infinity",
-        ]
-    )
-    return name
+console = get_console()
+app = typer.Typer(add_completion=False, help="Memotic control CLI", no_args_is_help=True)
 
 
 def load_pyproject_imports(project_root: Path) -> List[str]:
@@ -106,22 +22,28 @@ def load_pyproject_imports(project_root: Path) -> List[str]:
     pt = project_root / "pyproject.toml"
     if not pt.exists():
         return []
+    
     try:
         import tomllib  # 3.11+
-
         data = tomllib.loads(pt.read_text())
-    except Exception:
+    except ImportError:
+        console.print("Warning: tomllib not available, skipping pyproject.toml imports")
         return []
+    except Exception as e:
+        console.print(f"Warning: failed to parse pyproject.toml: {e}")
+        return []
+    
     imports = data.get("tool", {}).get("memotic", {}).get("imports", [])
     return [i for i in imports if isinstance(i, str)]
 
 
 def import_module_dotted(path: str) -> None:
+    """Import a module by dotted path."""
     importlib.import_module(path)
 
 
 def import_file(path: Path, module_name: str = "_memotic_handlers") -> None:
-    """Allow dropping a `memotic_handlers.py` into the project root."""
+    """Import a Python file as a module."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(module_name, str(path))
@@ -131,122 +53,268 @@ def import_file(path: Path, module_name: str = "_memotic_handlers") -> None:
         spec.loader.exec_module(m)
 
 
-def import_handlers(project_root: Path, extra_imports: Optional[Iterable[str]] = None):
-    """
-    Load handler modules so memotic's subclass discovery sees them.
-    Precedence:
-      1) CLI --import values
-      2) MEMOTIC_IMPORTS env (comma-separated)
-      3) [tool.memotic].imports in pyproject.toml
-      4) memotic_handlers.py in project root (if present)
-    """
+def import_handlers(project_root: Path, extra_imports: Optional[Iterable[str]] = None, verbose: bool = False):
+    """Load handler modules for subclass discovery."""
     seen: set[str] = set()
 
-    # Normalize possibly-None input into a list
     extra_list = [s for s in (extra_imports or []) if s]
-
+    
     env_imps = os.getenv("MEMOTIC_IMPORTS", "")
     env_list = [s.strip() for s in env_imps.split(",") if s.strip()] if env_imps else []
 
     pyproject_list = load_pyproject_imports(project_root)
 
-    # dotted imports
+    # Import dotted modules
     for mod in [*extra_list, *env_list, *pyproject_list]:
         if mod and mod not in seen:
             try:
                 import_module_dotted(mod)
                 seen.add(mod)
+                if verbose:
+                    console.print(f"✓ Imported: {mod}")
             except Exception as e:
-                typer.secho(f"[memotic] Warning: failed to import '{mod}': {e}", fg="yellow", err=True)
+                console.print(f"⚠ Failed to import '{mod}': {e}")
 
-    # file-based fallback
+    # Import file-based handlers
     hf = project_root / "memotic_handlers.py"
     if hf.exists():
         try:
             import_file(hf)
             seen.add(str(hf))
+            if verbose:
+                console.print(f"✓ Imported: {hf}")
         except Exception as e:
-            typer.secho(f"[memotic] Warning: failed to import handlers file '{hf}': {e}", fg="yellow", err=True)
+            console.print(f"⚠ Failed to import handlers file '{hf}': {e}")
 
-
-# ---------- CLI commands ----------
+    return len(seen)
 
 
 @app.command(no_args_is_help=True)
 def serve(
     imports: Optional[List[str]] = typer.Option(
-        None, "--import", "-I", help="Extra dotted modules to import for handler discovery (repeatable)."
+        None, "--import", "-I", help="Extra dotted modules to import"
     ),
     ensure_sandbox_flag: bool = typer.Option(
-        False, "--ensure-sandbox", help="Create/start a per-project Docker sandbox and mount the project root."
+        False, "--ensure-sandbox", help="Create/start Docker sandbox"
     ),
-    container: Optional[str] = typer.Option(None, "--container", help="Sandbox container name (default is derived)."),
+    container: Optional[str] = typer.Option(None, "--container", help="Container name"),
     host: str = typer.Option("127.0.0.1", "--host", help="Bind address"),
     port: int = typer.Option(8000, "--port", "-p", help="Port"),
-    reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes"),
+    reload: bool = typer.Option(False, "--reload", help="Auto-reload"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """
-    Start the memotic FastAPI webhook app, loading handlers from the current project.
-    """
-    root = find_project_root()
-    typer.echo(f"Project root: {root}")
+    """Start the memotic FastAPI webhook app."""
+    
+    config = MemoticConfig(
+        host=host,
+        port=port,
+        container_name=container,
+    )
+    set_config(config)
+    
+    console.print(f"Project root: {config.project_root}")
+    console.print(f"Container name: {config.default_container_name}")
 
-    # Prepare sandbox
-    cname = container or default_container_name(root)
+    # Validate configuration
+    issues = config.validate_setup()
+    if issues:
+        console.print("Configuration issues:")
+        for issue in issues:
+            console.print(f"  ⚠ {issue}")
+
+    # Prepare container if requested
     if ensure_sandbox_flag:
-        cname = ensure_sandbox(root, name=cname)
-        typer.echo(f"Sandbox: {cname} (mounted {root} -> /workspace)")
+        console.print("Preparing container...")
+        container_manager = get_container_manager()
+        try:
+            container_name = container_manager.ensure_container()
+            console.print(f"✓ Container ready: {container_name}")
+        except Exception as e:
+            console.print(f"✗ Container setup failed: {e}")
+            console.print("Continuing without container - CLI commands may fail")
 
-    # Set env for the #cli executor
-    os.environ.setdefault("MEMOTIC_CLI_CONTAINER", cname)
-    os.environ.setdefault("MEMOTIC_CLI_WORKDIR", "/workspace")
-    os.environ.setdefault("MEMOTIC_CLI_SHELL", "/bin/bash")
-    os.environ.setdefault("MEMOTIC_CLI_TIMEOUT", "30")
+    # Load built-in CLI handler
+    try:
+        import memotic.cli
+        if verbose:
+            console.print("✓ Built-in CLI handler loaded")
+    except ImportError as e:
+        console.print(f"✗ Failed to load built-in CLI handler: {e}")
 
-    # Load handlers: built-ins + project-provided
-    import memotic.cli  # ensure the #cli handler class is present
+    # Load project handlers
+    console.print("Loading handlers...")
+    imported_count = import_handlers(config.project_root, extra_imports=imports, verbose=verbose)
+    
+    if imported_count == 0:
+        console.print("⚠ No additional handlers imported")
+    else:
+        console.print(f"✓ Loaded {imported_count} handler modules")
 
-    import_handlers(root, extra_imports=imports)
-
-    # Finally run the app
+    # Create and run app
+    from .app import create_app
+    
+    app_instance = create_app(config)
+    console.print(f"Starting server on {host}:{port}")
+    
     import uvicorn
-
-    uvicorn.run("memotic.app:app", host=host, port=port, reload=reload, factory=False)
+    uvicorn.run(app_instance, host=host, port=port, reload=reload, factory=False)
 
 
 @app.command()
 def up(
-    name: Optional[str] = typer.Option(None, "--name", help="Container name (defaults to per-project name)"),
+    name: Optional[str] = typer.Option(None, "--name", help="Container name"),
     image: str = typer.Option("debian:bookworm-slim", "--image", help="Base image"),
 ):
-    """Create/start the per-project Docker sandbox."""
-    root = find_project_root()
-    cname = ensure_sandbox(root, name=name or default_container_name(root), image=image)
-    typer.echo(f"Sandbox up: {cname}")
+    """Create/start the Docker container."""
+    config = get_config()
+    if name:
+        config = MemoticConfig(container_name=name, container_image=image)
+        set_config(config)
+    
+    container_manager = get_container_manager()
+    try:
+        container_name = container_manager.ensure_container()
+        console.print(f"✓ Container ready: {container_name}")
+    except Exception as e:
+        console.print(f"✗ Failed to create container: {e}")
+        raise typer.Exit(1)
 
 
 @app.command()
 def down(name: Optional[str] = typer.Option(None, "--name", help="Container name")):
-    """Stop and remove the per-project sandbox."""
-    root = find_project_root()
-    cname = name or default_container_name(root)
-    if container_exists(cname):
-        run(["docker", "rm", "-f", cname], check=False)
-        typer.echo(f"Sandbox removed: {cname}")
+    """Stop and remove the container."""
+    container_manager = get_container_manager()
+    success = container_manager.remove_container(name)
+    if success:
+        console.print("✓ Container removed")
     else:
-        typer.echo(f"No such sandbox: {cname}")
+        console.print("✗ Failed to remove container")
+        raise typer.Exit(1)
+
+
+@app.command()
+def status():
+    """Show container and configuration status."""
+    config = get_config()
+    container_manager = get_container_manager()
+    
+    console.print("Configuration")
+    console.print(f"  Project root: {config.project_root}")
+    console.print(f"  Container name: {config.default_container_name}")
+    console.print(f"  API configured: {config.has_api_config()}")
+    
+    console.print("\nDocker & Container")
+    try:
+        docker_available = container_manager.is_docker_available()
+        console.print(f"  Docker available: {'✓' if docker_available else '✗'}")
+        
+        if docker_available:
+            status = container_manager.get_container_status()
+            console.print(f"  Container exists: {'✓' if status.exists else '✗'}")
+            console.print(f"  Container running: {'✓' if status.running else '✗'}")
+            console.print(f"  Container healthy: {'✓' if status.healthy else '✗'}")
+            
+            if status.error:
+                console.print(f"  Error: {status.error}")
+        
+    except Exception as e:
+        console.print(f"  Status check failed: {e}")
 
 
 @app.command()
 def doctor():
-    """Print diagnostics for the current working directory."""
-    root = find_project_root()
-    cname = default_container_name(root)
-    typer.echo(f"Project root: {root}")
-    typer.echo(f"Default sandbox name: {cname}")
-    typer.echo(f"Docker available: {docker_is_running()}")
-    typer.echo(f"Sandbox exists: {container_exists(cname)} running={container_running(cname)}")
+    """Run diagnostics and show troubleshooting information."""
+    config = get_config()
+    container_manager = get_container_manager()
+    
+    console.print("=== Memotic Doctor ===")
+    
+    # Configuration
+    console.print("\nConfiguration")
+    console.print(f"✓ Project root: {config.project_root}")
+    console.print(f"✓ Container name: {config.default_container_name}")
+    
+    if config.has_api_config():
+        console.print("✓ Memos API configured")
+    else:
+        console.print("⚠ Memos API not configured")
+        console.print("  Set MEMOTIC_API_BASE and MEMOTIC_API_TOKEN")
+    
+    # Validate configuration
+    issues = config.validate_setup()
+    if issues:
+        console.print("\nConfiguration Issues:")
+        for issue in issues:
+            console.print(f"  ⚠ {issue}")
+    
+    # Docker
+    console.print("\nDocker")
+    try:
+        if container_manager.is_docker_available():
+            console.print("✓ Docker daemon available")
+        else:
+            console.print("✗ Docker daemon not available")
+            console.print("  Install Docker and ensure it's running")
+    except Exception as e:
+        console.print(f"✗ Docker check failed: {e}")
+    
+    # Container status
+    console.print("\nContainer")
+    try:
+        status = container_manager.get_container_status()
+        if status.healthy:
+            console.print(f"✓ Container healthy: {status.name}")
+        elif status.running:
+            console.print(f"⚠ Container running but not healthy: {status.name}")
+            console.print("  Container may have issues - try: memotic down && memotic up")
+        elif status.exists:
+            console.print(f"⚠ Container exists but not running: {status.name}")
+            console.print("  Start with: memotic up")
+        else:
+            console.print(f"⚠ Container does not exist: {status.name}")
+            console.print("  Create with: memotic up")
+        
+        if status.error:
+            console.print(f"  Error: {status.error}")
+    
+    except Exception as e:
+        console.print(f"✗ Container status check failed: {e}")
+
+    # Handler check
+    console.print("\nHandlers")
+    try:
+        import memotic.cli
+        from memotic.base import MemoWebhookEvent
+        
+        handlers = MemoWebhookEvent.__subclasses__()
+        if handlers:
+            console.print(f"✓ Found {len(handlers)} handlers:")
+            for handler in handlers:
+                console.print(f"    - {handler.__name__}")
+        else:
+            console.print("⚠ No handlers found")
+            console.print("  Handlers may not be imported yet - this is normal")
+            
+    except Exception as e:
+        console.print(f"✗ Handler check failed: {e}")
+
+    console.print("\nRecommendations")
+    if not config.has_api_config():
+        console.print("  1. Configure Memos API access")
+    try:
+        if not container_manager.is_docker_available():
+            console.print("  2. Install and start Docker")
+        elif not container_manager.get_container_status().healthy:
+            console.print("  2. Set up container: memotic up")
+    except Exception:
+        pass
+    console.print("  3. Test setup: memotic serve --verbose")
 
 
 def main():
+    """Main CLI entry point."""
     app()
+
+
+if __name__ == "__main__":
+    main()
