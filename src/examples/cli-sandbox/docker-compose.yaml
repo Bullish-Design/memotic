@@ -1,19 +1,29 @@
+# src/examples/cli-sandbox/docker-compose.yaml
 services:
-  sandbox:
-    # you can switch to the build block below if you prefer the Dockerfile
-    image: debian:bookworm-slim
-    container_name: memotic-cli-sandbox
-    working_dir: /workspace
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        WORKDIR: ${WORKDIR:-/workspace}
+    container_name: ${MEMOTIC_CLI_CONTAINER}
+    working_dir: ${WORKDIR:-/workspace}
     command: ["bash", "-lc", "sleep infinity"]
-    volumes:
-      # from src/examples/cli-sandbox up to repo root is ../../../
-      - ../../..:/workspace
     tty: true
-    init: true
-    restart: unless-stopped
+    environment:
+      MEMOTIC_API_BASE: ${MEMOTIC_API_BASE}
+      MEMOTIC_API_TOKEN: ${MEMOTIC_API_TOKEN}
+      MEMOTIC_CLI_WORKDIR: ${MEMOTIC_CLI_WORKDIR:-/workspace}
+      MEMOTIC_CLI_SHELL: ${MEMOTIC_CLI_SHELL:-/bin/bash}
+      MEMOTIC_CLI_TIMEOUT: ${MEMOTIC_CLI_TIMEOUT:-30}
+      MEMOTIC_CLI_COMMENT_MAX: ${MEMOTIC_CLI_COMMENT_MAX:-15000}
+    volumes:
+      - ${PROJECT_ROOT}:${WORKDIR:-/workspace}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "print('health_check')"]
+      # Make health go green fast so our startup wait doesn't race it
+      interval: 2s
+      timeout: 2s
+      start_period: 3s
+      retries: 20
 
-    # If you want to build instead of pulling the image, comment "image:" above
-    # and uncomment the block below, plus ensure the Dockerfile (next snippet) exists.
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile

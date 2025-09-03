@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import time
 from typing import Optional
@@ -11,19 +12,15 @@ from pydantic import BaseModel
 from .config import MemoticConfig, get_config
 from .dependencies import require_solitary
 
-# Import solitary components with error handling
 try:
     from solitary import SandboxConfig, Sandbox
-    from solitary.exceptions import ContainerNotFoundError, SandboxError
 except ImportError as e:
-    raise ImportError(f"solitary is required: pip install solitary") from e
+    raise ImportError("solitary is required: pip install solitary") from e
 
 logger = logging.getLogger(__name__)
 
 
 class ContainerStatus(BaseModel):
-    """Container status information."""
-
     name: str
     exists: bool = False
     running: bool = False
@@ -32,206 +29,171 @@ class ContainerStatus(BaseModel):
 
 
 class ContainerManager:
-    """Manages Docker containers for CLI execution."""
+    """Manages the CLI sandbox via docker compose."""
 
     def __init__(self, config: Optional[MemoticConfig] = None):
         self.config = config or get_config()
 
-    def _run_docker_cmd(self, cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-        """Run docker command and return result."""
+    # -------- docker helpers --------
+    def _run(self, cmd: list[str], check: bool = True, timeout: int = 30) -> subprocess.CompletedProcess:
         try:
-            result = subprocess.run(
-                cmd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30
+            return subprocess.run(
+                cmd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout
             )
-            return result
         except subprocess.CalledProcessError as e:
-            logger.error(f"Docker command failed: {' '.join(cmd)}: {e.stderr}")
+            logger.error(f"Command failed: {' '.join(cmd)}: {e.stderr.strip()}")
             raise
         except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Docker command timed out: {' '.join(cmd)}")
+            raise RuntimeError(f"Command timed out: {' '.join(cmd)}")
         except FileNotFoundError:
-            raise RuntimeError("Docker not found. Please ensure Docker is installed and in PATH.")
+            raise RuntimeError(f"{cmd[0]} not found in PATH.")
 
     def is_docker_available(self) -> bool:
-        """Check if Docker daemon is running."""
         try:
-            self._run_docker_cmd(["docker", "version"], check=True)
+            self._run(["docker", "version"], check=True)
             return True
         except Exception as e:
             logger.debug(f"Docker not available: {e}")
             return False
 
-    def container_exists(self, name: str) -> bool:
-        """Check if container exists."""
-        try:
-            result = self._run_docker_cmd(
-                ["docker", "ps", "-a", "--format", "{{.Names}}", "--filter", f"name={name}"], check=False
-            )
-            return name in result.stdout.splitlines()
-        except Exception:
-            return False
+    # ---- inspect helpers ----
+    def _inspect_fmt(self, name: str, fmt: str) -> Optional[str]:
+        cp = self._run(["docker", "inspect", "-f", fmt, name], check=False)
+        if cp.returncode != 0:
+            return None
+        return cp.stdout.strip()
 
-    def container_running(self, name: str) -> bool:
-        """Check if container is running."""
-        try:
-            result = self._run_docker_cmd(["docker", "inspect", "-f", "{{.State.Running}}", name], check=False)
-            return result.stdout.strip() == "true"
-        except Exception:
-            return False
+    def _exists(self, name: str) -> bool:
+        return self._inspect_fmt(name, "{{.Id}}") is not None
+
+    def _running(self, name: str) -> bool:
+        return self._inspect_fmt(name, "{{.State.Running}}") == "true"
+
+    def _health(self, name: str) -> Optional[str]:
+        # returns "healthy" | "unhealthy" | "starting" | "none" | None
+        out = self._inspect_fmt(name, "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}")
+        return out
+
+    def _docker_exec_ok(self, name: str, cmd: str) -> bool:
+        # Use shell for parity with our runtime
+        cp = self._run(["docker", "exec", name, "bash", "-lc", cmd], check=False)
+        return cp.returncode == 0
+
+    # -------- compose helpers --------
+    def _compose_env(self) -> dict:
+        env = os.environ.copy()
+        env.update(self.config.environment_vars)
+        return env
+
+    def _compose_cmd(self, *args: str) -> list[str]:
+        return ["docker", "compose", "-f", str(self.config.compose_file), *args]
+
+    def _compose(self, *args: str, check: bool = True, timeout: int = 120) -> subprocess.CompletedProcess:
+        return self._run(self._compose_cmd(*args), check=check, timeout=timeout)
+
+    def _compose_ps_name(self) -> Optional[str]:
+        cp = self._run(self._compose_cmd("ps", "-q", self.config.compose_service), check=False)
+        cid = cp.stdout.strip()
+        if not cid:
+            return None
+        name = self._run(["docker", "inspect", "-f", "{{.Name}}", cid], check=False).stdout.strip().lstrip("/")
+        return name or None
+
+    # -------- status & lifecycle --------
+    def container_exists(self, name: Optional[str] = None) -> bool:
+        cname = name or self.config.default_container_name
+        return (self._compose_ps_name() is not None) or self._exists(cname)
+
+    def container_running(self, name: Optional[str] = None) -> bool:
+        cname = name or self.config.default_container_name
+        compose_name = self._compose_ps_name() or cname
+        return self._running(compose_name)
 
     def get_container_status(self, name: Optional[str] = None) -> ContainerStatus:
-        """Get comprehensive container status."""
-        container_name = name or self.config.default_container_name
-
-        status = ContainerStatus(name=container_name)
-
+        cname = name or self.config.default_container_name
+        status = ContainerStatus(name=cname)
         try:
             if not self.is_docker_available():
                 status.error = "Docker daemon not available"
                 return status
-
-            status.exists = self.container_exists(container_name)
-            status.running = self.container_running(container_name) if status.exists else False
-
-            # Check health by trying to execute a simple command
+            status.exists = self.container_exists(cname)
+            status.running = self.container_running(cname) if status.exists else False
             if status.running:
-                status.healthy = self._test_container_health(container_name)
-
+                # If there's a healthcheck, honor it; otherwise rely on exec probe
+                h = self._health(cname)
+                if h in ("healthy", "none"):
+                    status.healthy = True
+                elif h == "starting":
+                    status.healthy = False
+                else:
+                    status.healthy = False
         except Exception as e:
             status.error = str(e)
-            logger.error(f"Error checking container status: {e}")
-
         return status
 
-    def _test_container_health(self, container_name: str) -> bool:
-        """Test if container is healthy by executing a simple command."""
-        try:
-            print(f"    Testing health of container: {container_name}, workdir: {self.config.container_workdir}")
-            sandbox_config = SandboxConfig(container=container_name, workdir=self.config.container_workdir, timeout=5)
-            print(f"      Sandbox config: {sandbox_config}")
-            with Sandbox(config=sandbox_config) as sandbox:
-                result = sandbox.execute("echo 'health_check'")
-                print(f"        Health check result: {result}")
-                return result.success and "health_check" in result.stdout
-        except Exception as e:
-            logger.debug(f"Container health check failed: {e}")
-            return False
+    def _pre_up_cleanup(self) -> None:
+        cname = self.config.default_container_name
+        # Remove conflicting container name regardless of provenance
+        self._run(["docker", "rm", "-f", cname], check=False)
+
+    def _wait_ready(self, name: str, timeout_s: int = 45) -> bool:
+        """Wait for Running + (healthy OR no healthcheck). Then exec quick probe."""
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if not self._running(name):
+                time.sleep(0.5)
+                continue
+            h = self._health(name)
+            if h in ("healthy", "none"):
+                # final exec probe
+                if self._docker_exec_ok(name, "echo health_check"):
+                    return True
+            time.sleep(0.5)
+        return False
 
     def ensure_container(self, name: Optional[str] = None) -> str:
-        """Ensure container exists and is running."""
         if not self.is_docker_available():
             raise RuntimeError("Docker daemon not available. Please start Docker.")
 
-        container_name = name or self.config.default_container_name
+        cname = name or self.config.default_container_name
 
-        # Check current status
-        status = self.get_container_status(container_name)
+        # Cleanup any same-named legacy container before starting
+        self._pre_up_cleanup()
 
-        if status.error:
-            raise RuntimeError(f"Container status check failed: {status.error}")
+        # Compose up
+        logger.info(f"Starting compose service '{self.config.compose_service}' from {self.config.compose_file}")
+        self._compose("up", "-d", "--build", "--remove-orphans", self.config.compose_service)
 
-        if status.healthy:
-            logger.debug(f"Container {container_name} is already healthy")
-            return container_name
+        # Wait for health + quick exec probe
+        if not self._wait_ready(cname, timeout_s=45):
+            raise RuntimeError(f"Failed to create healthy container: {cname}")
 
-        # Try to start if exists but not running
-        if status.exists and not status.running:
-            logger.info(f"Starting existing container: {container_name}")
-            try:
-                self._run_docker_cmd(["docker", "start", container_name])
-
-                # Wait for container to be ready
-                time.sleep(2)
-
-                # Verify it's now healthy
-                if self._test_container_health(container_name):
-                    logger.info(f"Container {container_name} started successfully")
-                    return container_name
-                else:
-                    logger.warning(f"Container {container_name} started but not healthy, recreating...")
-                    self.remove_container(container_name)
-            except Exception as e:
-                logger.warning(f"Failed to start container {container_name}: {e}")
-                self.remove_container(container_name)
-
-        # Create new container if needed
-        if not self.get_container_status(container_name).healthy:
-            logger.info(f"Creating new container: {container_name}")
-            self._create_container(container_name)
-
-        # Final health check
-        final_status = self.get_container_status(container_name)
-        if not final_status.healthy:
-            raise RuntimeError(f"Failed to create healthy container: {container_name} (status: {final_status})")
-
-        logger.info(f"Container {container_name} is ready")
-        return container_name
-
-    def _create_container(self, name: str) -> None:
-        """Create and start a new container."""
-        # Ensure old container is removed
-        self.remove_container(name)
-
-        cmd = [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            name,
-            "--memory",
-            "512m",  # Resource limits
-            "--cpus",
-            "1.0",
-            "-w",
-            self.config.container_workdir,
-            "-v",
-            f"{str(self.config.project_root)}:{self.config.container_workdir}",
-            self.config.container_image,
-            "bash",
-            "-c",
-            "sleep infinity",
-        ]
-
-        try:
-            result = self._run_docker_cmd(cmd)
-            logger.debug(f"Container created: {name} ({result.stdout.strip()[:12]})")
-
-            # Wait for container to be ready
-            time.sleep(2)
-
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to create container {name}: {e.stderr}")
+        return cname
 
     def remove_container(self, name: Optional[str] = None) -> bool:
-        """Remove container (stop and delete)."""
-        container_name = name or self.config.default_container_name
-
-        if not self.container_exists(container_name):
-            return True
-
-        try:
-            self._run_docker_cmd(["docker", "rm", "-f", container_name])
-            logger.info(f"Removed container: {container_name}")
-            return True
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to remove container {container_name}: {e.stderr}")
-            return False
+        ok = True
+        # Bring down compose project (ignore errors if not present)
+        self._compose("down", "--remove-orphans", check=False)
+        # Remove any same-named container regardless of source
+        cname = name or self.config.default_container_name
+        cp = self._run(["docker", "rm", "-f", cname], check=False)
+        ok = ok and (cp.returncode in (0, 1))
+        # Best-effort network cleanup
+        self._run(["docker", "network", "rm", f"{self.config.compose_dir.name}_default"], check=False)
+        return ok
 
     def create_sandbox(self, container_name: Optional[str] = None) -> Sandbox:
-        """Create a configured sandbox instance."""
+        """Return a Solitary sandbox for actual workload execution."""
         require_solitary()
-
-        # Ensure container is ready
-        actual_container_name = self.ensure_container(container_name)
-
-        sandbox_config = SandboxConfig(
-            container=actual_container_name,
-            workdir=self.config.container_workdir,
-            timeout=self.config.container_timeout,
-            shell=self.config.container_shell,
+        cname = self.ensure_container(container_name)
+        return Sandbox(
+            config=SandboxConfig(
+                container=cname,
+                workdir=self.config.container_workdir,
+                timeout=self.config.container_timeout,
+                shell=self.config.container_shell,
+            )
         )
-
-        return Sandbox(config=sandbox_config)
 
 
 # Global container manager instance

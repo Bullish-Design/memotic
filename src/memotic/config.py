@@ -6,11 +6,11 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Optional
+
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, computed_field
 
 load_dotenv()
-
-from pydantic import BaseModel, Field, computed_field
 
 
 def find_project_root(start: Path | str = ".") -> Path:
@@ -42,9 +42,12 @@ class MemoticConfig(BaseModel):
     container_shell: str = Field(default="/bin/bash", description="Container shell")
     container_timeout: int = Field(default=30, description="Command timeout in seconds")
 
-    # Memos API settings
-    api_base: Optional[str] = Field(default=None, description="Memos API base URL")
-    api_token: Optional[str] = Field(default=None, description="Memos API token")
+    # Compose settings
+    compose_service: str = Field(default="cli", description="Compose service name for the sandbox")
+
+    # Memos API settings - Simplified for memos-api integration
+    memos_api_host: str = Field(default="localhost", description="Memos API host")
+    memos_api_port: int = Field(default=5232, description="Memos API port")
 
     # CLI settings
     max_comment_chars: int = Field(default=15000, description="Maximum comment size")
@@ -59,53 +62,77 @@ class MemoticConfig(BaseModel):
         self.host = self.host or os.getenv("MEMOTIC_HOST", "127.0.0.1")
         self.port = self.port or int(os.getenv("MEMOTIC_PORT", "8000"))
 
-        # if not self.container_name:
-        #    self.container_name = os.getenv("MEMOTIC_CLI_CONTAINER")
-
+        # Container settings
+        self.container_name = os.getenv("MEMOTIC_CLI_CONTAINER", self.container_name)
         self.container_image = os.getenv("MEMOTIC_CLI_IMAGE", self.container_image)
         self.container_workdir = os.getenv("MEMOTIC_CLI_WORKDIR", self.container_workdir)
         self.container_shell = os.getenv("MEMOTIC_CLI_SHELL", self.container_shell)
         self.container_timeout = int(os.getenv("MEMOTIC_CLI_TIMEOUT", str(self.container_timeout)))
 
-        if not self.api_base:
-            # print(f"\nWarning: MEMOTIC_API_BASE not set, using environment variable if available.")
-            self.api_base = os.getenv("MEMOTIC_API_BASE")
-            # print(f"    Current MEMOTIC_API_BASE: {self.api_base}\n")
-        if not self.api_token:
-            # print(f"\nWarning: MEMOTIC_API_TOKEN not set, using environment variable if available.")
-            self.api_token = os.getenv("MEMOTIC_API_TOKEN")
-            # print(f"    Current MEMOTIC_API_TOKEN: {'*' * len(self.api_token) if self.api_token else None}\n")
+        # Compose overrides
+        self.compose_service = os.getenv("MEMOTIC_COMPOSE_SERVICE", self.compose_service)
+
+        # Memos API settings - Simplified
+        self.memos_api_host = os.getenv("MEMOS_HOST", self.memos_api_host)
+        self.memos_api_port = int(os.getenv("MEMOS_PORT", str(self.memos_api_port)))
 
         self.max_comment_chars = int(os.getenv("MEMOTIC_CLI_COMMENT_MAX", str(self.max_comment_chars)))
 
     @computed_field
     @property
     def default_container_name(self) -> str:
-        """Generate default container name from project root."""
+        """Generate default container name from project root, unless overridden."""
         if self.container_name:
             return self.container_name
-
         base = slugify(self.project_root.name)
         h = hashlib.sha1(str(self.project_root).encode()).hexdigest()[:7]
         return f"memotic-cli-{base}-{h}"
 
     @computed_field
     @property
+    def memos_api_url(self) -> str:
+        """Generate Memos API URL from host and port."""
+        return f"http://{self.memos_api_host}:{self.memos_api_port}"
+
+    # --- Compose-aware paths (derived from project_root) ---
+    @computed_field
+    @property
+    def compose_dir(self) -> Path:
+        """Directory containing Dockerfile and docker-compose.yaml for the CLI sandbox."""
+        return self.project_root / "src" / "examples" / "cli-sandbox"
+
+    @computed_field
+    @property
+    def compose_file(self) -> Path:
+        return self.compose_dir / "docker-compose.yaml"
+
+    @computed_field
+    @property
+    def dockerfile_path(self) -> Path:
+        return self.compose_dir / "Dockerfile"
+
+    @computed_field
+    @property
     def environment_vars(self) -> Dict[str, str]:
-        """Environment variables for container execution."""
+        """Environment variables for container/compose execution."""
         return {
             "MEMOTIC_CLI_CONTAINER": self.default_container_name,
             "MEMOTIC_CLI_WORKDIR": self.container_workdir,
             "MEMOTIC_CLI_SHELL": self.container_shell,
             "MEMOTIC_CLI_TIMEOUT": str(self.container_timeout),
-            "MEMOTIC_API_BASE": self.api_base or "",
-            "MEMOTIC_API_TOKEN": self.api_token or "",
             "MEMOTIC_CLI_COMMENT_MAX": str(self.max_comment_chars),
+            # compose file uses these:
+            "PROJECT_ROOT": str(self.project_root),
+            "WORKDIR": self.container_workdir,
+            # Memos API settings
+            "MEMOS_HOST": self.memos_api_host,
+            "MEMOS_PORT": str(self.memos_api_port),
+            "MEMOS_URL": self.memos_api_url,
         }
 
     def has_api_config(self) -> bool:
-        """Check if API configuration is available."""
-        return bool(self.api_base and self.api_token)
+        """Check if Memos API configuration is available."""
+        return bool(self.memos_api_host and self.memos_api_port)
 
     def validate_setup(self) -> list[str]:
         """Validate configuration and return list of issues."""
@@ -114,8 +141,13 @@ class MemoticConfig(BaseModel):
         if not self.project_root.exists():
             issues.append(f"Project root does not exist: {self.project_root}")
 
+        if not self.compose_file.exists():
+            issues.append(f"Compose file not found: {self.compose_file}")
+        if not self.dockerfile_path.exists():
+            issues.append(f"Dockerfile not found: {self.dockerfile_path}")
+
         if not self.has_api_config():
-            issues.append("Memos API not configured (missing MEMOTIC_API_BASE or MEMOTIC_API_TOKEN)")
+            issues.append("Memos API not configured (missing MEMOS_HOST or MEMOS_PORT)")
 
         if self.container_timeout <= 0:
             issues.append(f"Invalid container timeout: {self.container_timeout}")
@@ -145,4 +177,3 @@ def reset_config() -> None:
     """Reset global configuration for testing."""
     global _config
     _config = None
-

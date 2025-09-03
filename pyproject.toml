@@ -32,7 +32,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-cli = ["solitary", "typer>=0.17.3","rich>=14.1.0"]
+cli = ["solitary", "typer>=0.17.3","rich>=14.1.0", "memos-api"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
@@ -43,6 +43,7 @@ dev = [
 [tool.uv.sources]
 webhooky = { git = "https://github.com/Bullish-Design/webhooky.git" }
 solitary = { git = "https://github.com/Bullish-Design/solitary.git" }
+memos-api = { git = "https://github.com/Bullish-Design/memos-api.git"}
 
 [project.scripts]
 memotic = "memotic.cli_main:main"
@@ -78,3 +79,4 @@ minversion = "8.0"
 testpaths = ["src/tests"]
 addopts = "-q -v --tb=short"
 asyncio_mode = "auto"
+log_cli = 1

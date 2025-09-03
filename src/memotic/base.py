@@ -10,6 +10,8 @@ from typing import Any, ClassVar, Dict, Iterable, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from memos_api.models import Memo, User
+
 # Re-export webhooky primitives
 from webhooky import (
     WebhookEventBase,
@@ -29,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 # ---------- Minimal data models ----------
 
+'''
 class User(BaseModel):
     """Subset of Memos user fields we actually consume."""
 
@@ -98,6 +101,7 @@ class Memo(BaseModel):
         if ut is not None:
             data["update_time"] = parse_dt(ut)
         return data
+'''
 
 
 class WebhookEnvelope(BaseModel):
@@ -105,6 +109,7 @@ class WebhookEnvelope(BaseModel):
 
 
 # ---------- Utility helpers ----------
+
 
 def _normalize_activity(s: Optional[str]) -> Optional[str]:
     if not s:
@@ -233,6 +238,7 @@ def _cheap_prefilter(
 
 
 # ---------- The event base ----------
+
 
 class MemoWebhookEvent(WebhookEventBase):
     """
@@ -469,3 +475,4 @@ class MemoWebhookEvent(WebhookEventBase):
     @classmethod
     def from_envelope(cls, env: WebhookEnvelope) -> "MemoWebhookEvent":
         return cls(memo=env.memo)
+
