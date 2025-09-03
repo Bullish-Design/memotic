@@ -10,9 +10,10 @@ requires-python = ">=3.11"
 authors = [{name = "Bullish-Design"}]
 license = {text = "MIT"}
 dependencies = [
-    "webhooky[all]",
+    "webhooky",
     "pydantic>=2.7",
     "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
 ]
 
 keywords = ["webhooks", "memos", "notes", "markdown", "webhooky", "plugin"]
@@ -29,6 +30,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+cli = ["solitary>=0.2"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
