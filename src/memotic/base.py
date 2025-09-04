@@ -10,7 +10,8 @@ from typing import Any, ClassVar, Dict, Iterable, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from memos_api.models import Memo, User
+from memos_api.models import Memo as BaseMemo, User as BaseUser
+
 
 # Re-export webhooky primitives
 from webhooky import (
@@ -102,6 +103,122 @@ class Memo(BaseModel):
             data["update_time"] = parse_dt(ut)
         return data
 '''
+
+
+# ---------- Enhanced models for webhook processing ----------
+
+
+class User(BaseUser):
+    """Extended User model with flexible parsing for webhook processing."""
+
+    pass
+
+
+class Memo(BaseMemo):
+    """Extended Memo model with robust webhook format coercion."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_webhook_formats(cls, data: Any) -> Any:
+        """Convert webhook integer/dict formats to expected string/datetime formats."""
+        if not isinstance(data, dict):
+            return data
+
+        data = dict(data)  # Don't modify original
+
+        def parse_dt(value: Any) -> Optional[datetime]:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value
+            # Firestore-ish dict {"seconds": int}
+            if isinstance(value, dict) and "seconds" in value:
+                try:
+                    return datetime.fromtimestamp(int(value["seconds"]))
+                except Exception:
+                    return None
+            # epoch seconds
+            if isinstance(value, (int, float)):
+                try:
+                    return datetime.fromtimestamp(float(value))
+                except Exception:
+                    return None
+            # ISO-ish string
+            if isinstance(value, str):
+                try:
+                    s = value.replace("Z", "+00:00")
+                    return datetime.fromisoformat(s)
+                except Exception:
+                    return None
+            return None
+
+        # Coerce timestamps - display_time stays as string, others become datetime
+        datetime_fields = ["create_time", "createTime", "update_time", "updateTime"]
+        string_time_fields = ["display_time", "displayTime"]
+
+        for field in datetime_fields:
+            if field in data:
+                parsed = parse_dt(data[field])
+                if parsed:
+                    snake_field = field.replace("createTime", "create_time").replace("updateTime", "update_time")
+                    data[snake_field] = parsed
+
+        for field in string_time_fields:
+            if field in data:
+                parsed = parse_dt(data[field])
+                if parsed:
+                    snake_field = field.replace("displayTime", "display_time")
+                    data[snake_field] = parsed.isoformat()
+
+        # Coerce enums from int to string
+        enum_mappings = {
+            "state": {1: "NORMAL", 2: "ARCHIVED"},
+            "visibility": {1: "PRIVATE", 2: "PROTECTED", 3: "PUBLIC"},
+        }
+
+        for field, mapping in enum_mappings.items():
+            if field in data and isinstance(data[field], int):
+                data[field] = mapping.get(data[field], data[field])
+
+        # Coerce node types in nodes array
+        if "nodes" in data and isinstance(data["nodes"], list):
+            node_type_mapping = {
+                1: "LINE_BREAK",
+                2: "PARAGRAPH",
+                3: "CODE_BLOCK",
+                4: "HEADING",
+                5: "HORIZONTAL_RULE",
+                6: "BLOCKQUOTE",
+                7: "LIST",
+                8: "ORDERED_LIST_ITEM",
+                9: "UNORDERED_LIST_ITEM",
+                10: "TASK_LIST_ITEM",
+                11: "MATH_BLOCK",
+                12: "TABLE",
+                13: "EMBEDDED_CONTENT",
+                51: "TEXT",
+                52: "BOLD",
+                53: "ITALIC",
+                54: "BOLD_ITALIC",
+                55: "CODE",
+                56: "IMAGE",
+                57: "LINK",
+                58: "AUTO_LINK",
+                59: "TAG",
+                60: "STRIKETHROUGH",
+                61: "ESCAPING_CHARACTER",
+                62: "MATH",
+                63: "HIGHLIGHT",
+                64: "SUBSCRIPT",
+                65: "SUPERSCRIPT",
+                66: "SPOILER",
+            }
+
+            for node in data["nodes"]:
+                if isinstance(node, dict) and "type" in node and isinstance(node["type"], int):
+                    node["type"] = node_type_mapping.get(node["type"], f"UNKNOWN_{node['type']}")
+
+        return data
 
 
 class WebhookEnvelope(BaseModel):
@@ -282,7 +399,8 @@ class MemoWebhookEvent(WebhookEventBase):
         source_info: Optional[Dict[str, Any]] = None,
     ) -> MemoWebhookEvent:
         """Create event instance from raw webhook data using proper validation."""
-        return cls.model_validate(
+        # print(f"Creating {cls.__name__} from raw data...")
+        validated_model = cls.model_validate(
             {
                 **raw_data,
                 "headers": headers or {},
@@ -290,6 +408,8 @@ class MemoWebhookEvent(WebhookEventBase):
                 "timestamp": datetime.now(),
             }
         )
+        # print(f"Created {cls.__name__} instance: {validated_model}")
+        return validated_model
 
     @model_validator(mode="before")
     @classmethod
@@ -416,6 +536,7 @@ class MemoWebhookEvent(WebhookEventBase):
             content_regex=regex,
         ):
             logger.debug(f"Prefilter rejected {cls.__name__}")
+            print(f"Prefilter rejected {cls.__name__}")
             return False
 
         # Try building the model (leverages validators)
@@ -423,6 +544,7 @@ class MemoWebhookEvent(WebhookEventBase):
             candidate = cls.model_validate(raw_data)
         except Exception as e:
             logger.debug("Validation failed in matches() for %s: %s", cls.__name__, e)
+            print(f"Validation failed in matches() for {cls.__name__}: {e}")
             return False
 
         # Declarative checks
@@ -434,21 +556,26 @@ class MemoWebhookEvent(WebhookEventBase):
 
         if any_tags and tags.isdisjoint(any_tags):
             logger.debug(f"Tags check failed for {cls.__name__}: {tags} vs {any_tags}")
+            print(f"Tags check failed for {cls.__name__}: {tags} vs {any_tags}")
             return False
         if all_tags and not all(t in tags for t in all_tags):
             logger.debug(f"All-tags check failed for {cls.__name__}: {tags} vs {all_tags}")
+            print(f"All-tags check failed for {cls.__name__}: {tags} vs {all_tags}")
             return False
 
         if contains:
             if contains.lower() not in candidate.memo.content.lower():
                 logger.debug(f"Content check failed for {cls.__name__}: {contains!r} not in {candidate.memo.content!r}")
+                print(f"Content check failed for {cls.__name__}: {contains!r} not in {candidate.memo.content!r}")
                 return False
         if regex:
             if not regex.search(candidate.memo.content):
                 logger.debug(f"Regex check failed for {cls.__name__}")
+                print(f"Regex check failed for {cls.__name__}")
                 return False
 
         logger.debug(f"All checks passed for {cls.__name__}")
+        # print(f"All checks passed for {cls.__name__}")
         return True
 
     async def process_triggers(self) -> Tuple[List[str], List[str]]:
@@ -466,6 +593,7 @@ class MemoWebhookEvent(WebhookEventBase):
     def event_matches(cls, env: WebhookEnvelope) -> bool:
         memo = env.memo
         tags = cls.normalize_tags(memo.tags)
+        print(f"    Event tags: {tags}")
         if cls.any_tags and not (tags & cls.normalize_tags(cls.any_tags)):
             return False
         if cls.all_tags and not cls.normalize_tags(cls.all_tags).issubset(tags):

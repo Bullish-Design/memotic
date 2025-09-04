@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import logging
 import textwrap
+import asyncio
+import httpx
 from typing import List
 
 from memos_api.api import MemosAPI
 from memos_api.models import CreateMemoRequest, Memo as APIMemo, Visibility
 
-from ..base import MemoWebhookEvent, on_any
+from ..base import MemoWebhookEvent, on_any, on_create
 from ..config import get_config
 from .exec import run_cli_lines
 
@@ -54,15 +56,15 @@ class CliTagged(MemoWebhookEvent):
 
     any_tags = {"cli"}
 
-    @on_any()
-    def run_cli(self):
+    @on_create()
+    async def run_cli(self):
         """Execute CLI commands and post results back to Memos."""
         content = self.memo.content or ""
         parent_name = getattr(self.memo, "name", None)
 
         logger.info(f"Processing CLI commands for memo: {parent_name or 'unnamed'}")
-        print(f"Processing CLI commands for memo: {parent_name or 'unnamed'}")
-        print(f"Content:\n{content}\n")
+        # print(f"Processing CLI commands for memo: {parent_name or 'unnamed'}")
+        # print(f"Content:\n{content}\n")
 
         # Run commands and accumulate results
         rendered_chunks: List[str] = []
@@ -82,7 +84,7 @@ class CliTagged(MemoWebhookEvent):
                 rendered_chunks.append(rendered)
 
                 logger.info(f"CLI command '{cmd}' completed with exit code {code}")
-                print(f"    CLI command '{cmd}' completed with exit code {code}\n\n")
+                print(f"    CLI command '{cmd}' completed with exit code {code}")
                 if code != 0 and err:
                     logger.warning(f"Command stderr: {err[:100]}...")
 
@@ -92,7 +94,7 @@ class CliTagged(MemoWebhookEvent):
                 return
 
             logger.info(f"Executed {commands_executed} CLI commands")
-            print(f"Executed {commands_executed} CLI commands")
+            # print(f"Executed {commands_executed} CLI commands")
 
         except Exception as e:
             logger.error(f"Failed to execute CLI commands: {e}")
@@ -114,6 +116,7 @@ class CliTagged(MemoWebhookEvent):
             logger.warning("API configuration not available; skipping reply comment")
             print(f"API configuration not available; skipping reply comment")
             return
+        # print(f"Config: {config}")
 
         # Create and post comments using memos-api
         try:
@@ -121,7 +124,7 @@ class CliTagged(MemoWebhookEvent):
             memos_api = MemosAPI()
 
             body_chunks = _summarize_results(rendered_chunks)
-            print(f"\n\n\nPosting {len(body_chunks)} comment(s) back to {parent_name}...")
+            # print(f"\nPosting {len(body_chunks)} comment(s) back to {parent_name}...")
             title = "CLI Results"
 
             created_names: List[str] = []
@@ -129,29 +132,41 @@ class CliTagged(MemoWebhookEvent):
             for i, body in enumerate(body_chunks, start=1):
                 label = f"{title} ({i}/{len(body_chunks)})" if len(body_chunks) > 1 else title
                 comment_md = _format_cli_comment(label, body)
-                print(f"Prepared comment chunk {i}:\n{comment_md}\n")
+                # print(f"Prepared comment chunk {i}:\n{comment_md}\n")
 
-                try:
-                    # Create comment using memos-api
-                    comment_memo = APIMemo(
-                        content=comment_md,
-                        parent=parent_name,
-                        visibility=Visibility.PRIVATE,
-                    )
+                async with httpx.AsyncClient() as client:
+                    try:
+                        # Create comment using direct HTTP request to Memos API
+                        comment_data = {
+                            "content": comment_md,
+                            "parent": parent_name,
+                            "visibility": "PRIVATE",
+                        }
 
-                    request = CreateMemoRequest(memo=comment_memo)
+                        response = await client.post(
+                            f"{config.memos_api_url}/api/v1/memos",
+                            json=comment_data,
+                            headers={
+                                "Content-Type": "application/json",
+                                "authorization": f"Bearer {config.memos_token}",
+                            },
+                        )
 
-                    # Use the memos-api storage directly for posting
-                    created = memos_api.storage.memos.create(comment_memo)
-                    created_name = created.name or f"memo-{i}"
+                        if response.status_code == 200:
+                            result = response.json()
+                            created_name = result.get("name", f"memo-{i}")
+                            # print(f"Posted comment chunk {i}: {created_name}")
+                            created_names.append(created_name)
+                            logger.debug(f"Posted comment chunk {i}: {created_name}")
+                        else:
+                            logger.error(
+                                f"Failed to post comment chunk {i}: HTTP {response.status_code} - {response.text}"
+                            )
+                            created_names.append(f"<failed: HTTP {response.status_code}>")
 
-                    print(f"Posted comment chunk {i}: {created_name}")
-                    created_names.append(created_name)
-                    logger.debug(f"Posted comment chunk {i}: {created_name}")
-
-                except Exception as e:
-                    logger.error(f"Failed to post comment chunk {i}: {e}")
-                    created_names.append(f"<failed: {e}>")
+                    except Exception as e:
+                        logger.error(f"Failed to post comment chunk {i}: {e}")
+                        created_names.append(f"<failed: {e}>")
 
             logger.info(f"Posted {len(body_chunks)} comment(s) to {parent_name}")
 

@@ -48,6 +48,7 @@ class MemoticConfig(BaseModel):
     # Memos API settings - Simplified for memos-api integration
     memos_api_host: str = Field(default="localhost", description="Memos API host")
     memos_api_port: int = Field(default=5232, description="Memos API port")
+    memos_token: Optional[str] = Field(default=None, description="Memos API token")
 
     # CLI settings
     max_comment_chars: int = Field(default=15000, description="Maximum comment size")
@@ -77,6 +78,7 @@ class MemoticConfig(BaseModel):
         self.memos_api_port = int(os.getenv("MEMOS_PORT", str(self.memos_api_port)))
 
         self.max_comment_chars = int(os.getenv("MEMOTIC_CLI_COMMENT_MAX", str(self.max_comment_chars)))
+        self.memos_token = os.getenv("MEMOS_TOKEN", self.memos_token or "")
 
     @computed_field
     @property
@@ -128,6 +130,7 @@ class MemoticConfig(BaseModel):
             "MEMOS_HOST": self.memos_api_host,
             "MEMOS_PORT": str(self.memos_api_port),
             "MEMOS_URL": self.memos_api_url,
+            "MEMOS_TOKEN": self.memos_token,
         }
 
     def has_api_config(self) -> bool:

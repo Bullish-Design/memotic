@@ -85,7 +85,7 @@ def create_app(config: MemoticConfig | None = None) -> FastAPI:
 
             logger.debug(f"Received webhook from {getattr(request.client, 'host', 'unknown')}")
             formatted_data = json.loads(json.dumps(raw_data, indent=2))
-            print(f"Received webhook: \n{formatted_data}\n")
+            # print(f"Received webhook: \n{formatted_data}\n")
 
             source_info = {
                 "client_ip": getattr(request.client, "host", None),
@@ -222,4 +222,3 @@ def create_app(config: MemoticConfig | None = None) -> FastAPI:
 
 # Create default app instance
 app = create_app()
-
