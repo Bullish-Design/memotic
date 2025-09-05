@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "memotic"
-version = "0.4.2"
+version = "0.7.1"
 description = "Memos webhook event processing plugin for WebHooky"
 requires-python = ">=3.13"
 authors = [{name = "Bullish-Design"}]
