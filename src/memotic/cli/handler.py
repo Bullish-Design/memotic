@@ -1,17 +1,14 @@
 # src/memotic/cli/handler.py
+# src/memotic/cli/handler.py
 from __future__ import annotations
 
 import logging
 import textwrap
-import asyncio
-import httpx
 from typing import List
-
-from memos_api.api import MemosAPI
-from memos_api.models import CreateMemoRequest, Memo as APIMemo, Visibility
 
 from ..base import MemoWebhookEvent, on_any, on_create
 from ..config import get_config
+from ..integrations import MemosIntegration, MemosIntegrationError, MemosAuthError, MemosNotFoundError
 from .exec import run_cli_lines
 
 logger = logging.getLogger(__name__)
@@ -63,8 +60,6 @@ class CliTagged(MemoWebhookEvent):
         parent_name = getattr(self.memo, "name", None)
 
         logger.info(f"Processing CLI commands for memo: {parent_name or 'unnamed'}")
-        # print(f"Processing CLI commands for memo: {parent_name or 'unnamed'}")
-        # print(f"Content:\n{content}\n")
 
         # Run commands and accumulate results
         rendered_chunks: List[str] = []
@@ -94,7 +89,6 @@ class CliTagged(MemoWebhookEvent):
                 return
 
             logger.info(f"Executed {commands_executed} CLI commands")
-            # print(f"Executed {commands_executed} CLI commands")
 
         except Exception as e:
             logger.error(f"Failed to execute CLI commands: {e}")
@@ -116,62 +110,45 @@ class CliTagged(MemoWebhookEvent):
             logger.warning("API configuration not available; skipping reply comment")
             print(f"API configuration not available; skipping reply comment")
             return
-        # print(f"Config: {config}")
 
-        # Create and post comments using memos-api
+        # Create and post comments using memos integration
         try:
-            # Initialize memos-api client
-            memos_api = MemosAPI()
+            async with MemosIntegration() as memos:
+                body_chunks = _summarize_results(rendered_chunks)
+                print(f"\nPosting {len(body_chunks)} comment(s) back to {parent_name}...")
+                title = "CLI Results"
 
-            body_chunks = _summarize_results(rendered_chunks)
-            # print(f"\nPosting {len(body_chunks)} comment(s) back to {parent_name}...")
-            title = "CLI Results"
+                created_names: List[str] = []
 
-            created_names: List[str] = []
+                for i, body in enumerate(body_chunks, start=1):
+                    label = f"{title} ({i}/{len(body_chunks)})" if len(body_chunks) > 1 else title
+                    comment_md = _format_cli_comment(label, body)
+                    print(f"Prepared comment chunk {i}:\n{comment_md}\n")
 
-            for i, body in enumerate(body_chunks, start=1):
-                label = f"{title} ({i}/{len(body_chunks)})" if len(body_chunks) > 1 else title
-                comment_md = _format_cli_comment(label, body)
-                # print(f"Prepared comment chunk {i}:\n{comment_md}\n")
-
-                async with httpx.AsyncClient() as client:
                     try:
-                        # Create comment using direct HTTP request to Memos API
-                        comment_data = {
-                            "content": comment_md,
-                            "parent": parent_name,
-                            "visibility": "PRIVATE",
-                        }
-
-                        response = await client.post(
-                            f"{config.memos_api_url}/api/v1/memos",
-                            json=comment_data,
-                            headers={
-                                "Content-Type": "application/json",
-                                "authorization": f"Bearer {config.memos_token}",
-                            },
+                        memo = await memos.create_comment(
+                            parent_memo_name=parent_name, content=comment_md, visibility="PRIVATE"
                         )
 
-                        if response.status_code == 200:
-                            result = response.json()
-                            created_name = result.get("name", f"memo-{i}")
-                            # print(f"Posted comment chunk {i}: {created_name}")
-                            created_names.append(created_name)
-                            logger.debug(f"Posted comment chunk {i}: {created_name}")
-                        else:
-                            logger.error(
-                                f"Failed to post comment chunk {i}: HTTP {response.status_code} - {response.text}"
-                            )
-                            created_names.append(f"<failed: HTTP {response.status_code}>")
+                        created_name = memo.name or f"memo-{i}"
+                        print(f"Posted comment chunk {i}: {created_name}")
+                        created_names.append(created_name)
+                        logger.debug(f"Posted comment chunk {i}: {created_name}")
 
-                    except Exception as e:
+                    except MemosAuthError as e:
+                        logger.error(f"Authentication failed posting comment chunk {i}: {e}")
+                        created_names.append(f"<auth failed: {e}>")
+                    except MemosNotFoundError as e:
+                        logger.error(f"Parent memo not found for chunk {i}: {e}")
+                        created_names.append(f"<parent not found: {e}>")
+                    except MemosIntegrationError as e:
                         logger.error(f"Failed to post comment chunk {i}: {e}")
                         created_names.append(f"<failed: {e}>")
 
-            logger.info(f"Posted {len(body_chunks)} comment(s) to {parent_name}")
+                logger.info(f"Posted {len(body_chunks)} comment(s) to {parent_name}")
 
-            if any("failed" in name for name in created_names):
-                logger.warning(f"Some comments failed to post: {created_names}")
+                if any("failed" in name or "auth failed" in name for name in created_names):
+                    logger.warning(f"Some comments failed to post: {created_names}")
 
         except Exception as e:
             logger.exception(f"Failed to post comments back to {parent_name}: {e}")

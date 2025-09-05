@@ -11,6 +11,7 @@ from .container_manager import (
     reset_container_manager,
 )
 from .dependencies import check_solitary, check_rich, require_solitary, get_console
+from .integrations import MemosIntegration, MemosIntegrationError, MemosAuthError, MemosNotFoundError
 
 __all__ = [
     # Core event handling
@@ -31,7 +32,11 @@ __all__ = [
     "check_rich",
     "require_solitary",
     "get_console",
+    # Memos integration
+    "MemosIntegration",
+    "MemosIntegrationError",
+    "MemosAuthError",
+    "MemosNotFoundError",
 ]
 
-__version__ = "0.6.1"
-
+__version__ = "0.7.1"
